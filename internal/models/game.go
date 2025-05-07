@@ -7,24 +7,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// Game представляет собой модель игры Wordle с механиками ставок
+// Game представляет собой модель игры
 type Game struct {
-	ID               uuid.UUID `json:"id"`
-	Title            string    `json:"title"`
-	Word             string    `json:"word"`
-	Length           int       `json:"length"`
-	Language         string    `json:"language"`   // "en" или "ru"
-	CreatorID        uint64    `json:"creator_id"` // Telegram ID создателя
-	Difficulty       int       `json:"difficulty"`
-	MaxTries         int       `json:"max_tries"`
-	RewardMultiplier float64   `json:"reward_multiplier"`
-	Currency         string    `json:"currency"` // "TON" или "USDT"
-	PrizePool        float64   `json:"prize_pool"`
-	MinBet           float64   `json:"min_bet"`
-	MaxBet           float64   `json:"max_bet"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	Status           string    `json:"status"` // "active" или "inactive"
+	ID          uuid.UUID `json:"id"`
+	CreatorID   uint64    `json:"creator_id"` // Telegram ID создателя
+	Word        string    `json:"word"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	MinBet      float64   `json:"min_bet"`
+	MaxBet      float64   `json:"max_bet"`
+	RewardRate  float64   `json:"reward_rate"`
+	Status      string    `json:"status"` // "active" или "inactive"
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 // GameRepository определяет интерфейс для работы с играми в базе данных
@@ -43,9 +39,9 @@ type GameService interface {
 	Create(ctx context.Context, game *Game) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
 	GetAll(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetAllGames(ctx context.Context) ([]*Game, error)
 	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
 	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
 	Update(ctx context.Context, game *Game) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	CheckWord(ctx context.Context, gameID uuid.UUID, word string) ([]int, error)
 }

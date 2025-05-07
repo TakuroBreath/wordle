@@ -24,11 +24,10 @@ func NewRepository(db *sql.DB) *Repository {
 	// Инициализация репозиториев
 	repo.gameRepo = NewGameRepository(db)
 	repo.userRepo = NewUserRepository(db)
-	// TODO: Инициализировать остальные репозитории
-	// repo.lobbyRepo = NewLobbyRepository(db)
-	// repo.attemptRepo = NewAttemptRepository(db)
-	// repo.historyRepo = NewHistoryRepository(db)
-	// repo.transactionRepo = NewTransactionRepository(db)
+	repo.lobbyRepo = NewLobbyRepository(db)
+	repo.attemptRepo = NewAttemptRepository(db)
+	repo.historyRepo = NewHistoryRepository(db)
+	repo.transactionRepo = NewTransactionRepository(db)
 
 	return repo
 }

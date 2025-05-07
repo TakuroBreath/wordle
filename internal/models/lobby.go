@@ -14,7 +14,7 @@ type Lobby struct {
 	UserID          uint64    `json:"user_id"` // Telegram ID игрока
 	MaxTries        int       `json:"max_tries"`
 	TriesUsed       int       `json:"tries_used"`
-	Bet             float64   `json:"bet"`
+	BetAmount       float64   `json:"bet_amount"`
 	PotentialReward float64   `json:"potential_reward"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
@@ -26,10 +26,12 @@ type Lobby struct {
 // Attempt представляет собой модель попытки угадать слово
 type Attempt struct {
 	ID        uuid.UUID `json:"id"`
-	LobbyID   uuid.UUID `json:"lobby_id"`
+	GameID    uuid.UUID `json:"game_id"`
+	UserID    uint64    `json:"user_id"` // Telegram ID игрока
 	Word      string    `json:"word"`
-	Feedback  []int     `json:"feedback"` // 0 - нет, 1 - есть в слове, 2 - на месте
+	Result    []int     `json:"result"` // 0 - нет, 1 - есть в слове, 2 - на месте
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // History представляет собой модель истории игр
@@ -41,6 +43,7 @@ type History struct {
 	Status    string    `json:"status"` // "creator_win" или "player_win"
 	Reward    float64   `json:"reward"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // LobbyRepository определяет интерфейс для работы с лобби в базе данных
@@ -71,7 +74,11 @@ type LobbyService interface {
 type AttemptRepository interface {
 	Create(ctx context.Context, attempt *Attempt) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Attempt, error)
+	GetByGameID(ctx context.Context, gameID uuid.UUID) ([]*Attempt, error)
+	GetByUserID(ctx context.Context, userID uint64) ([]*Attempt, error)
 	GetByLobbyID(ctx context.Context, lobbyID uuid.UUID) ([]*Attempt, error)
+	Update(ctx context.Context, attempt *Attempt) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // HistoryRepository определяет интерфейс для работы с историей в базе данных
@@ -80,6 +87,8 @@ type HistoryRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*History, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*History, error)
 	GetByGameID(ctx context.Context, gameID uuid.UUID, limit, offset int) ([]*History, error)
+	Update(ctx context.Context, history *History) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // HistoryService определяет интерфейс для бизнес-логики работы с историей
