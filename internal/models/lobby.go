@@ -18,7 +18,7 @@ type Lobby struct {
 	PotentialReward float64   `json:"potential_reward" db:"potential_reward"`
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
-	ExpiresAt       time.Time `json:"expires_at" db:"expires_at"`
+	ExpiresAt       time.Time `json:"expires_at" db:"expires_at"` // 5 минут после создания
 	Status          string    `json:"status" db:"status"` // "active" или "inactive"
 	Attempts        []Attempt `json:"attempts"`
 }
