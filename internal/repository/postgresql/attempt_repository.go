@@ -3,6 +3,7 @@ package postgresql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -36,17 +37,25 @@ func (r *AttemptRepository) Create(ctx context.Context, attempt *models.Attempt)
 
 	// Установка текущего времени
 	now := time.Now()
-	attempt.CreatedAt = now
+	if attempt.CreatedAt.IsZero() {
+		attempt.CreatedAt = now
+	}
 	attempt.UpdatedAt = now
 
-	_, err := r.db.ExecContext(
+	// Преобразование результата в JSON
+	resultJSON, err := json.Marshal(attempt.Result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	_, err = r.db.ExecContext(
 		ctx,
 		query,
 		attempt.ID,
 		attempt.GameID,
 		attempt.UserID,
 		attempt.Word,
-		attempt.Result,
+		resultJSON,
 		attempt.CreatedAt,
 		attempt.UpdatedAt,
 	)
@@ -67,13 +76,14 @@ func (r *AttemptRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 	`
 
 	var attempt models.Attempt
+	var resultJSON []byte
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&attempt.ID,
 		&attempt.GameID,
 		&attempt.UserID,
 		&attempt.Word,
-		&attempt.Result,
+		&resultJSON,
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -83,6 +93,11 @@ func (r *AttemptRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 			return nil, fmt.Errorf("attempt not found")
 		}
 		return nil, fmt.Errorf("failed to get attempt: %w", err)
+	}
+
+	// Преобразование JSON обратно в массив
+	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 	}
 
 	return &attempt, nil
@@ -99,26 +114,31 @@ func (r *AttemptRepository) GetByGameID(ctx context.Context, gameID uuid.UUID) (
 
 	rows, err := r.db.QueryContext(ctx, query, gameID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get attempts: %w", err)
+		return nil, fmt.Errorf("failed to get attempts by game: %w", err)
 	}
 	defer rows.Close()
 
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
+		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&attempt.Result,
+			&resultJSON,
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
+		}
+
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -142,20 +162,21 @@ func (r *AttemptRepository) GetByUserID(ctx context.Context, userID uint64) ([]*
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user attempts: %w", err)
+		return nil, fmt.Errorf("failed to get attempts by user: %w", err)
 	}
 	defer rows.Close()
 
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
+		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&attempt.Result,
+			&resultJSON,
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
@@ -164,42 +185,46 @@ func (r *AttemptRepository) GetByUserID(ctx context.Context, userID uint64) ([]*
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
 		}
 
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+		}
+
 		attempts = append(attempts, &attempt)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating user attempts: %w", err)
+		return nil, fmt.Errorf("error iterating attempts: %w", err)
 	}
 
 	return attempts, nil
 }
 
-// GetByLobbyID получает все попытки для конкретного лобби
-func (r *AttemptRepository) GetByLobbyID(ctx context.Context, lobbyID uuid.UUID) ([]*models.Attempt, error) {
+// GetByGameAndUser получает попытки конкретного пользователя в конкретной игре
+func (r *AttemptRepository) GetByGameAndUser(ctx context.Context, gameID uuid.UUID, userID uint64) ([]*models.Attempt, error) {
 	query := `
-		SELECT a.id, a.game_id, a.user_id, a.word, a.result, a.created_at, a.updated_at
-		FROM attempts a
-		JOIN lobbies l ON a.game_id = l.game_id AND a.user_id = l.user_id
-		WHERE l.id = $1
-		ORDER BY a.created_at ASC
+		SELECT id, game_id, user_id, word, result, created_at, updated_at
+		FROM attempts
+		WHERE game_id = $1 AND user_id = $2
+		ORDER BY created_at ASC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, lobbyID)
+	rows, err := r.db.QueryContext(ctx, query, gameID, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get lobby attempts: %w", err)
+		return nil, fmt.Errorf("failed to get attempts by game and user: %w", err)
 	}
 	defer rows.Close()
 
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
+		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&attempt.Result,
+			&resultJSON,
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
@@ -208,45 +233,38 @@ func (r *AttemptRepository) GetByLobbyID(ctx context.Context, lobbyID uuid.UUID)
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
 		}
 
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+		}
+
 		attempts = append(attempts, &attempt)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating lobby attempts: %w", err)
+		return nil, fmt.Errorf("error iterating attempts: %w", err)
 	}
 
 	return attempts, nil
 }
 
-// Update обновляет попытку в базе данных
-func (r *AttemptRepository) Update(ctx context.Context, attempt *models.Attempt) error {
+// CountByGameAndUser возвращает количество попыток пользователя в игре
+func (r *AttemptRepository) CountByGameAndUser(ctx context.Context, gameID uuid.UUID, userID uint64) (int, error) {
 	query := `
-		UPDATE attempts
-		SET game_id = $1, user_id = $2, word = $3, result = $4, updated_at = $5
-		WHERE id = $6
+		SELECT COUNT(*)
+		FROM attempts
+		WHERE game_id = $1 AND user_id = $2
 	`
 
-	attempt.UpdatedAt = time.Now()
-
-	_, err := r.db.ExecContext(
-		ctx,
-		query,
-		attempt.GameID,
-		attempt.UserID,
-		attempt.Word,
-		attempt.Result,
-		attempt.UpdatedAt,
-		attempt.ID,
-	)
-
+	var count int
+	err := r.db.QueryRowContext(ctx, query, gameID, userID).Scan(&count)
 	if err != nil {
-		return fmt.Errorf("failed to update attempt: %w", err)
+		return 0, fmt.Errorf("failed to count attempts: %w", err)
 	}
 
-	return nil
+	return count, nil
 }
 
-// Delete удаляет попытку из базы данных
+// Delete удаляет попытку
 func (r *AttemptRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM attempts WHERE id = $1`
 
@@ -256,4 +274,173 @@ func (r *AttemptRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// GetLastAttempt получает последнюю попытку пользователя в игре
+func (r *AttemptRepository) GetLastAttempt(ctx context.Context, gameID uuid.UUID, userID uint64) (*models.Attempt, error) {
+	query := `
+		SELECT id, game_id, user_id, word, result, created_at, updated_at
+		FROM attempts
+		WHERE game_id = $1 AND user_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var attempt models.Attempt
+	var resultJSON []byte
+
+	err := r.db.QueryRowContext(ctx, query, gameID, userID).Scan(
+		&attempt.ID,
+		&attempt.GameID,
+		&attempt.UserID,
+		&attempt.Word,
+		&resultJSON,
+		&attempt.CreatedAt,
+		&attempt.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no attempts found")
+		}
+		return nil, fmt.Errorf("failed to get last attempt: %w", err)
+	}
+
+	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+	}
+
+	return &attempt, nil
+}
+
+// GetSuccessfulAttempts получает успешные попытки (где все буквы угаданы)
+func (r *AttemptRepository) GetSuccessfulAttempts(ctx context.Context, gameID uuid.UUID) ([]*models.Attempt, error) {
+	query := `
+		SELECT id, game_id, user_id, word, result, created_at, updated_at
+		FROM attempts
+		WHERE game_id = $1 AND result @> '[2,2,2,2,2]'::jsonb
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, gameID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get successful attempts: %w", err)
+	}
+	defer rows.Close()
+
+	var attempts []*models.Attempt
+	for rows.Next() {
+		var attempt models.Attempt
+		var resultJSON []byte
+
+		err := rows.Scan(
+			&attempt.ID,
+			&attempt.GameID,
+			&attempt.UserID,
+			&attempt.Word,
+			&resultJSON,
+			&attempt.CreatedAt,
+			&attempt.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan attempt: %w", err)
+		}
+
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+		}
+
+		attempts = append(attempts, &attempt)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating successful attempts: %w", err)
+	}
+
+	return attempts, nil
+}
+
+// GetAttemptsByDateRange получает попытки за определенный период
+func (r *AttemptRepository) GetAttemptsByDateRange(ctx context.Context, startDate, endDate time.Time) ([]*models.Attempt, error) {
+	query := `
+		SELECT id, game_id, user_id, word, result, created_at, updated_at
+		FROM attempts
+		WHERE created_at BETWEEN $1 AND $2
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attempts by date range: %w", err)
+	}
+	defer rows.Close()
+
+	var attempts []*models.Attempt
+	for rows.Next() {
+		var attempt models.Attempt
+		var resultJSON []byte
+
+		err := rows.Scan(
+			&attempt.ID,
+			&attempt.GameID,
+			&attempt.UserID,
+			&attempt.Word,
+			&resultJSON,
+			&attempt.CreatedAt,
+			&attempt.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan attempt: %w", err)
+		}
+
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+		}
+
+		attempts = append(attempts, &attempt)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating attempts by date range: %w", err)
+	}
+
+	return attempts, nil
+}
+
+// GetUserStats получает статистику попыток пользователя
+func (r *AttemptRepository) GetUserStats(ctx context.Context, userID uint64) (totalAttempts, successfulAttempts int, err error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_attempts,
+			COUNT(*) FILTER (WHERE result @> '[2,2,2,2,2]'::jsonb) as successful_attempts
+		FROM attempts
+		WHERE user_id = $1
+	`
+
+	err = r.db.QueryRowContext(ctx, query, userID).Scan(&totalAttempts, &successfulAttempts)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get user stats: %w", err)
+	}
+
+	return totalAttempts, successfulAttempts, nil
+}
+
+// GetGameStats получает статистику попыток для игры
+func (r *AttemptRepository) GetGameStats(ctx context.Context, gameID uuid.UUID) (totalAttempts, uniquePlayers int, err error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_attempts,
+			COUNT(DISTINCT user_id) as unique_players
+		FROM attempts
+		WHERE game_id = $1
+	`
+
+	err = r.db.QueryRowContext(ctx, query, gameID).Scan(&totalAttempts, &uniquePlayers)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get game stats: %w", err)
+	}
+
+	return totalAttempts, uniquePlayers, nil
 }

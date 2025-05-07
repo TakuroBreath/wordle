@@ -9,41 +9,18 @@ import (
 
 // Lobby представляет собой модель игрового лобби
 type Lobby struct {
-	ID              uuid.UUID `json:"id"`
-	GameID          uuid.UUID `json:"game_id"`
-	UserID          uint64    `json:"user_id"` // Telegram ID игрока
-	MaxTries        int       `json:"max_tries"`
-	TriesUsed       int       `json:"tries_used"`
-	BetAmount       float64   `json:"bet_amount"`
-	PotentialReward float64   `json:"potential_reward"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	ExpiresAt       time.Time `json:"expires_at"`
-	Status          string    `json:"status"` // "active" или "inactive"
+	ID              uuid.UUID `json:"id" db:"id"`
+	GameID          uuid.UUID `json:"game_id" db:"game_id"`
+	UserID          uint64    `json:"user_id" db:"user_id"` // Telegram ID игрока
+	MaxTries        int       `json:"max_tries" db:"max_tries"`
+	TriesUsed       int       `json:"tries_used" db:"tries_used"`
+	BetAmount       float64   `json:"bet_amount" db:"bet_amount"`
+	PotentialReward float64   `json:"potential_reward" db:"potential_reward"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+	ExpiresAt       time.Time `json:"expires_at" db:"expires_at"`
+	Status          string    `json:"status" db:"status"` // "active" или "inactive"
 	Attempts        []Attempt `json:"attempts"`
-}
-
-// Attempt представляет собой модель попытки угадать слово
-type Attempt struct {
-	ID        uuid.UUID `json:"id"`
-	GameID    uuid.UUID `json:"game_id"`
-	UserID    uint64    `json:"user_id"` // Telegram ID игрока
-	Word      string    `json:"word"`
-	Result    []int     `json:"result"` // 0 - нет, 1 - есть в слове, 2 - на месте
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// History представляет собой модель истории игр
-type History struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uint64    `json:"user_id"` // Telegram ID игрока
-	GameID    uuid.UUID `json:"game_id"`
-	LobbyID   uuid.UUID `json:"lobby_id"`
-	Status    string    `json:"status"` // "creator_win" или "player_win"
-	Reward    float64   `json:"reward"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // LobbyRepository определяет интерфейс для работы с лобби в базе данных
