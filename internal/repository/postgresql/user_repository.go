@@ -24,7 +24,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // Create создает нового пользователя в базе данных
 func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (telegram_id, username, wallet, balance, wins, losses, created_at, updated_at)
+		INSERT INTO users (telegram_id, username, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
@@ -38,7 +38,8 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		user.TelegramID,
 		user.Username,
 		user.Wallet,
-		user.Balance,
+		user.BalanceTon,
+		user.BalanceUsdt,
 		user.Wins,
 		user.Losses,
 		user.CreatedAt,
@@ -55,7 +56,7 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 // GetByTelegramID получает пользователя по Telegram ID
 func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64) (*models.User, error) {
 	query := `
-		SELECT telegram_id, username, wallet, balance, wins, losses, created_at, updated_at
+		SELECT telegram_id, username, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at
 		FROM users
 		WHERE telegram_id = $1
 	`
@@ -66,7 +67,8 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64)
 		&user.TelegramID,
 		&user.Username,
 		&user.Wallet,
-		&user.Balance,
+		&user.BalanceTon,
+		&user.BalanceUsdt,
 		&user.Wins,
 		&user.Losses,
 		&user.CreatedAt,
@@ -87,8 +89,8 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64)
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	query := `
 		UPDATE users
-		SET username = $1, wallet = $2, balance = $3, wins = $4, losses = $5, updated_at = $6
-		WHERE telegram_id = $7
+		SET username = $1, wallet = $2, balance_ton = $3, balance_usdt = $4, wins = $5, losses = $6, updated_at = $7
+		WHERE telegram_id = $8
 	`
 
 	user.UpdatedAt = time.Now()
@@ -98,7 +100,8 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 		query,
 		user.Username,
 		user.Wallet,
-		user.Balance,
+		user.BalanceTon,
+		user.BalanceUsdt,
 		user.Wins,
 		user.Losses,
 		user.UpdatedAt,

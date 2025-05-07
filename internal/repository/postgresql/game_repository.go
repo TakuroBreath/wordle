@@ -25,9 +25,8 @@ func NewGameRepository(db *sql.DB) *GameRepository {
 // Create создает новую игру в базе данных
 func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 	query := `
-		INSERT INTO games (id, title, word, length, creator_id, difficulty, max_tries, 
-			reward_multiplier, currency, prize_pool, min_bet, max_bet, created_at, updated_at, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO games (id, creator_id, word, length, difficulty, max_tries, title, description, min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`
 
 	// Генерация UUID, если он не был установлен
@@ -46,20 +45,22 @@ func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 		ctx,
 		query,
 		game.ID,
-		game.Title,
+		game.CreatorID,
 		game.Word,
 		game.Length,
-		game.CreatorID,
 		game.Difficulty,
 		game.MaxTries,
-		game.RewardMultiplier,
-		game.Currency,
-		game.PrizePool,
+		game.Title,
+		game.Description,
 		game.MinBet,
 		game.MaxBet,
+		game.RewardMultiplier,
+		game.Currency,
+		game.RewardPoolTon,
+		game.RewardPoolUsdt,
+		game.Status,
 		game.CreatedAt,
 		game.UpdatedAt,
-		game.Status,
 	)
 
 	if err != nil {
@@ -72,8 +73,9 @@ func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 // GetByID получает игру по ID
 func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Game, error) {
 	query := `
-		SELECT id, title, word, length, creator_id, difficulty, max_tries, 
-			reward_multiplier, currency, prize_pool, min_bet, max_bet, created_at, updated_at, status
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
 		FROM games
 		WHERE id = $1
 	`
@@ -82,20 +84,22 @@ func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Gam
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&game.ID,
-		&game.Title,
+		&game.CreatorID,
 		&game.Word,
 		&game.Length,
-		&game.CreatorID,
 		&game.Difficulty,
 		&game.MaxTries,
-		&game.RewardMultiplier,
-		&game.Currency,
-		&game.PrizePool,
+		&game.Title,
+		&game.Description,
 		&game.MinBet,
 		&game.MaxBet,
+		&game.RewardMultiplier,
+		&game.Currency,
+		&game.RewardPoolTon,
+		&game.RewardPoolUsdt,
+		&game.Status,
 		&game.CreatedAt,
 		&game.UpdatedAt,
-		&game.Status,
 	)
 
 	if err != nil {
@@ -111,8 +115,9 @@ func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Gam
 // GetAll получает все игры с пагинацией
 func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*models.Game, error) {
 	query := `
-		SELECT id, title, word, length, creator_id, difficulty, max_tries, 
-			reward_multiplier, currency, prize_pool, min_bet, max_bet, created_at, updated_at, status
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
 		FROM games
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -130,20 +135,22 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 
 		err := rows.Scan(
 			&game.ID,
-			&game.Title,
+			&game.CreatorID,
 			&game.Word,
 			&game.Length,
-			&game.CreatorID,
 			&game.Difficulty,
 			&game.MaxTries,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.PrizePool,
+			&game.Title,
+			&game.Description,
 			&game.MinBet,
 			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
 			&game.CreatedAt,
 			&game.UpdatedAt,
-			&game.Status,
 		)
 
 		if err != nil {
@@ -163,8 +170,9 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 // GetActive получает все активные игры с пагинацией
 func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*models.Game, error) {
 	query := `
-		SELECT id, title, word, length, creator_id, difficulty, max_tries, 
-			reward_multiplier, currency, prize_pool, min_bet, max_bet, created_at, updated_at, status
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
 		FROM games
 		WHERE status = 'active'
 		ORDER BY created_at DESC
@@ -183,20 +191,22 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 
 		err := rows.Scan(
 			&game.ID,
-			&game.Title,
+			&game.CreatorID,
 			&game.Word,
 			&game.Length,
-			&game.CreatorID,
 			&game.Difficulty,
 			&game.MaxTries,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.PrizePool,
+			&game.Title,
+			&game.Description,
 			&game.MinBet,
 			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
 			&game.CreatedAt,
 			&game.UpdatedAt,
-			&game.Status,
 		)
 
 		if err != nil {
@@ -216,8 +226,9 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 // GetByCreator получает игры по ID создателя с пагинацией
 func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*models.Game, error) {
 	query := `
-		SELECT id, title, word, length, creator_id, difficulty, max_tries, 
-			reward_multiplier, currency, prize_pool, min_bet, max_bet, created_at, updated_at, status
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
 		FROM games
 		WHERE creator_id = $1
 		ORDER BY created_at DESC
@@ -236,20 +247,22 @@ func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, lim
 
 		err := rows.Scan(
 			&game.ID,
-			&game.Title,
+			&game.CreatorID,
 			&game.Word,
 			&game.Length,
-			&game.CreatorID,
 			&game.Difficulty,
 			&game.MaxTries,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.PrizePool,
+			&game.Title,
+			&game.Description,
 			&game.MinBet,
 			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
 			&game.CreatedAt,
 			&game.UpdatedAt,
-			&game.Status,
 		)
 
 		if err != nil {
@@ -270,10 +283,12 @@ func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, lim
 func (r *GameRepository) Update(ctx context.Context, game *models.Game) error {
 	query := `
 		UPDATE games
-		SET title = $1, word = $2, length = $3, creator_id = $4, difficulty = $5,
-			max_tries = $6, reward_multiplier = $7, currency = $8, prize_pool = $9,
-			min_bet = $10, max_bet = $11, updated_at = $12, status = $13
-		WHERE id = $14
+		SET creator_id = $1, word = $2, length = $3, difficulty = $4,
+			max_tries = $5, title = $6, description = $7, min_bet = $8,
+			max_bet = $9, reward_multiplier = $10, currency = $11,
+			reward_pool_ton = $12, reward_pool_usdt = $13, status = $14,
+			updated_at = $15
+		WHERE id = $16
 	`
 
 	game.UpdatedAt = time.Now()
@@ -281,19 +296,21 @@ func (r *GameRepository) Update(ctx context.Context, game *models.Game) error {
 	_, err := r.db.ExecContext(
 		ctx,
 		query,
-		game.Title,
+		game.CreatorID,
 		game.Word,
 		game.Length,
-		game.CreatorID,
 		game.Difficulty,
 		game.MaxTries,
-		game.RewardMultiplier,
-		game.Currency,
-		game.PrizePool,
+		game.Title,
+		game.Description,
 		game.MinBet,
 		game.MaxBet,
-		game.UpdatedAt,
+		game.RewardMultiplier,
+		game.Currency,
+		game.RewardPoolTon,
+		game.RewardPoolUsdt,
 		game.Status,
+		game.UpdatedAt,
 		game.ID,
 	)
 
@@ -314,4 +331,167 @@ func (r *GameRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// GetActiveByCreator получает активные игры создателя
+func (r *GameRepository) GetActiveByCreator(ctx context.Context, creatorID uint64) ([]*models.Game, error) {
+	query := `
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
+		FROM games
+		WHERE creator_id = $1 AND status = 'active'
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, creatorID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active games by creator: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating active games by creator: %w", err)
+	}
+
+	return games, nil
+}
+
+// UpdateStatus обновляет только статус игры
+func (r *GameRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	query := `
+		UPDATE games
+		SET status = $1, updated_at = $2
+		WHERE id = $3
+	`
+
+	_, err := r.db.ExecContext(ctx, query, status, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update game status: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateRewardPool обновляет пул наград
+func (r *GameRepository) UpdateRewardPool(ctx context.Context, id uuid.UUID, rewardPoolTon, rewardPoolUsdt float64) error {
+	query := `
+		UPDATE games
+		SET reward_pool_ton = $1, reward_pool_usdt = $2, updated_at = $3
+		WHERE id = $4
+	`
+
+	_, err := r.db.ExecContext(ctx, query, rewardPoolTon, rewardPoolUsdt, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update game reward pool: %w", err)
+	}
+
+	return nil
+}
+
+// CountActive возвращает количество активных игр
+func (r *GameRepository) CountActive(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM games WHERE status = 'active'`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count active games: %w", err)
+	}
+
+	return count, nil
+}
+
+// CountByCreator возвращает количество игр создателя
+func (r *GameRepository) CountByCreator(ctx context.Context, creatorID uint64) (int, error) {
+	query := `SELECT COUNT(*) FROM games WHERE creator_id = $1`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, creatorID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count games by creator: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetByDifficulty получает игры по сложности
+func (r *GameRepository) GetByDifficulty(ctx context.Context, difficulty string, limit, offset int) ([]*models.Game, error) {
+	query := `
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
+		FROM games
+		WHERE difficulty = $1 AND status = 'active'
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, difficulty, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games by difficulty: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating games by difficulty: %w", err)
+	}
+
+	return games, nil
 }

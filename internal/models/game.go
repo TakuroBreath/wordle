@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,39 +8,21 @@ import (
 
 // Game представляет собой модель игры
 type Game struct {
-	ID          uuid.UUID `json:"id"`
-	CreatorID   uint64    `json:"creator_id"` // Telegram ID создателя
-	Word        string    `json:"word"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	MinBet      float64   `json:"min_bet"`
-	MaxBet      float64   `json:"max_bet"`
-	RewardRate  float64   `json:"reward_rate"`
-	Status      string    `json:"status"` // "active" или "inactive"
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-}
-
-// GameRepository определяет интерфейс для работы с играми в базе данных
-type GameRepository interface {
-	Create(ctx context.Context, game *Game) error
-	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
-	GetAll(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
-	Update(ctx context.Context, game *Game) error
-	Delete(ctx context.Context, id uuid.UUID) error
-}
-
-// GameService определяет интерфейс для бизнес-логики работы с играми
-type GameService interface {
-	Create(ctx context.Context, game *Game) error
-	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
-	GetAll(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
-	Update(ctx context.Context, game *Game) error
-	Delete(ctx context.Context, id uuid.UUID) error
-	CheckWord(ctx context.Context, gameID uuid.UUID, word string) ([]int, error)
+	ID               uuid.UUID `json:"id" db:"id"`
+	CreatorID        uint64    `json:"creator_id" db:"creator_id"` // Telegram ID создателя
+	Word             string    `json:"word" db:"word"`
+	Length           int       `json:"length" db:"length"`
+	Difficulty       string    `json:"difficulty" db:"difficulty"`
+	MaxTries         int       `json:"max_tries" db:"max_tries"`
+	Title            string    `json:"title" db:"title"`
+	Description      string    `json:"description" db:"description"`
+	MinBet           float64   `json:"min_bet" db:"min_bet"`
+	MaxBet           float64   `json:"max_bet" db:"max_bet"`
+	RewardMultiplier float64   `json:"reward_multiplier" db:"reward_multiplier"`
+	Currency         string    `json:"currency" db:"currency"` // "TON" или "USDT"
+	RewardPoolTon    float64   `json:"reward_pool_ton" db:"reward_pool_ton"`
+	RewardPoolUsdt   float64   `json:"reward_pool_usdt" db:"reward_pool_usdt"`
+	Status           string    `json:"status" db:"status"` // "active" или "inactive"
+	CreatedAt        time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
