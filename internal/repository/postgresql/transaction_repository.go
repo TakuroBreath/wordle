@@ -88,16 +88,17 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mod
 	return &transaction, nil
 }
 
-// GetByUserID получает все транзакции пользователя
-func (r *TransactionRepository) GetByUserID(ctx context.Context, userID uint64) ([]*models.Transaction, error) {
+// GetByUserID получает все транзакции пользователя с пагинацией
+func (r *TransactionRepository) GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*models.Transaction, error) {
 	query := `
 		SELECT id, user_id, amount, type, status, created_at, updated_at
 		FROM transactions
 		WHERE user_id = $1
 		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user transactions: %w", err)
 	}
@@ -174,6 +175,50 @@ func (r *TransactionRepository) GetByStatus(ctx context.Context, status string) 
 	return transactions, nil
 }
 
+// GetByType получает транзакции по типу с пагинацией
+func (r *TransactionRepository) GetByType(ctx context.Context, transactionType string, limit, offset int) ([]*models.Transaction, error) {
+	query := `
+		SELECT id, user_id, amount, type, status, created_at, updated_at
+		FROM transactions
+		WHERE type = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, transactionType, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions by type: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []*models.Transaction
+	for rows.Next() {
+		var transaction models.Transaction
+
+		err := rows.Scan(
+			&transaction.ID,
+			&transaction.UserID,
+			&transaction.Amount,
+			&transaction.Type,
+			&transaction.Status,
+			&transaction.CreatedAt,
+			&transaction.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+
+		transactions = append(transactions, &transaction)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating transactions by type: %w", err)
+	}
+
+	return transactions, nil
+}
+
 // Update обновляет транзакцию в базе данных
 func (r *TransactionRepository) Update(ctx context.Context, transaction *models.Transaction) error {
 	query := `
@@ -212,4 +257,38 @@ func (r *TransactionRepository) Delete(ctx context.Context, id uuid.UUID) error 
 	}
 
 	return nil
+}
+
+// CountByUser возвращает количество транзакций пользователя
+func (r *TransactionRepository) CountByUser(ctx context.Context, userID uint64) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM transactions
+		WHERE user_id = $1
+	`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count user transactions: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetUserBalance получает баланс пользователя
+func (r *TransactionRepository) GetUserBalance(ctx context.Context, userID uint64) (float64, error) {
+	query := `
+		SELECT COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE -amount END), 0)
+		FROM transactions
+		WHERE user_id = $1 AND status = 'completed'
+	`
+
+	var balance float64
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&balance)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user balance: %w", err)
+	}
+
+	return balance, nil
 }

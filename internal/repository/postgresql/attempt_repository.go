@@ -444,3 +444,140 @@ func (r *AttemptRepository) GetGameStats(ctx context.Context, gameID uuid.UUID) 
 
 	return totalAttempts, uniquePlayers, nil
 }
+
+// GetByLobbyID получает попытки по ID лобби с пагинацией
+func (r *AttemptRepository) GetByLobbyID(ctx context.Context, lobbyID uuid.UUID, limit, offset int) ([]*models.Attempt, error) {
+	query := `
+		SELECT a.id, a.game_id, a.user_id, a.word, a.result, a.created_at, a.updated_at
+		FROM attempts a
+		JOIN lobbies l ON a.game_id = l.game_id AND a.user_id = l.user_id
+		WHERE l.id = $1
+		ORDER BY a.created_at ASC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, lobbyID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attempts by lobby: %w", err)
+	}
+	defer rows.Close()
+
+	var attempts []*models.Attempt
+	for rows.Next() {
+		var attempt models.Attempt
+		var resultJSON []byte
+
+		err := rows.Scan(
+			&attempt.ID,
+			&attempt.GameID,
+			&attempt.UserID,
+			&attempt.Word,
+			&resultJSON,
+			&attempt.CreatedAt,
+			&attempt.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan attempt: %w", err)
+		}
+
+		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+		}
+
+		attempts = append(attempts, &attempt)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating attempts: %w", err)
+	}
+
+	return attempts, nil
+}
+
+// GetByWord получает попытку по слову в лобби
+func (r *AttemptRepository) GetByWord(ctx context.Context, lobbyID uuid.UUID, word string) (*models.Attempt, error) {
+	query := `
+		SELECT a.id, a.game_id, a.user_id, a.word, a.result, a.created_at, a.updated_at
+		FROM attempts a
+		JOIN lobbies l ON a.game_id = l.game_id AND a.user_id = l.user_id
+		WHERE l.id = $1 AND a.word = $2
+	`
+
+	var attempt models.Attempt
+	var resultJSON []byte
+
+	err := r.db.QueryRowContext(ctx, query, lobbyID, word).Scan(
+		&attempt.ID,
+		&attempt.GameID,
+		&attempt.UserID,
+		&attempt.Word,
+		&resultJSON,
+		&attempt.CreatedAt,
+		&attempt.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("attempt not found")
+		}
+		return nil, fmt.Errorf("failed to get attempt: %w", err)
+	}
+
+	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+	}
+
+	return &attempt, nil
+}
+
+// CountByLobbyID возвращает количество попыток в лобби
+func (r *AttemptRepository) CountByLobbyID(ctx context.Context, lobbyID uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM attempts a
+		JOIN lobbies l ON a.game_id = l.game_id AND a.user_id = l.user_id
+		WHERE l.id = $1
+	`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, lobbyID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count attempts: %w", err)
+	}
+
+	return count, nil
+}
+
+// Update обновляет попытку в базе данных
+func (r *AttemptRepository) Update(ctx context.Context, attempt *models.Attempt) error {
+	query := `
+		UPDATE attempts
+		SET game_id = $1, user_id = $2, word = $3, result = $4, updated_at = $5
+		WHERE id = $6
+	`
+
+	attempt.UpdatedAt = time.Now()
+
+	resultJSON, err := json.Marshal(attempt.Result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	_, err = r.db.ExecContext(
+		ctx,
+		query,
+		attempt.GameID,
+		attempt.UserID,
+		attempt.Word,
+		resultJSON,
+		attempt.UpdatedAt,
+		attempt.ID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update attempt: %w", err)
+	}
+
+	return nil
+}

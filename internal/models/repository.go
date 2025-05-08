@@ -1,0 +1,88 @@
+package models
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
+
+// GameRepository определяет методы для работы с играми
+type GameRepository interface {
+	Create(ctx context.Context, game *Game) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
+	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
+	Update(ctx context.Context, game *Game) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
+	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Game, error)
+	CountByUser(ctx context.Context, userID uint64) (int, error)
+}
+
+// UserRepository определяет методы для работы с пользователями
+type UserRepository interface {
+	Create(ctx context.Context, user *User) error
+	GetByTelegramID(ctx context.Context, telegramID uint64) (*User, error)
+	Update(ctx context.Context, user *User) error
+	Delete(ctx context.Context, id uint64) error
+	GetByUsername(ctx context.Context, username string) (*User, error)
+	UpdateBalance(ctx context.Context, id uint64, amount float64) error
+	GetTopUsers(ctx context.Context, limit int) ([]*User, error)
+}
+
+// LobbyRepository определяет методы для работы с лобби
+type LobbyRepository interface {
+	Create(ctx context.Context, lobby *Lobby) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Lobby, error)
+	GetByGameID(ctx context.Context, gameID uuid.UUID, limit, offset int) ([]*Lobby, error)
+	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Lobby, error)
+	Update(ctx context.Context, lobby *Lobby) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetActive(ctx context.Context, limit, offset int) ([]*Lobby, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateTriesUsed(ctx context.Context, id uuid.UUID, triesUsed int) error
+	GetExpired(ctx context.Context) ([]*Lobby, error)
+	GetActiveByGameAndUser(ctx context.Context, gameID uuid.UUID, userID uint64) (*Lobby, error)
+	CountActiveByGame(ctx context.Context, gameID uuid.UUID) (int, error)
+	CountByUser(ctx context.Context, userID uint64) (int, error)
+	GetActiveWithAttempts(ctx context.Context, limit, offset int) ([]*Lobby, error)
+	ExtendExpirationTime(ctx context.Context, id uuid.UUID, duration int) error
+	GetLobbiesByStatus(ctx context.Context, status string, limit, offset int) ([]*Lobby, error)
+}
+
+// AttemptRepository определяет методы для работы с попытками
+type AttemptRepository interface {
+	Create(ctx context.Context, attempt *Attempt) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Attempt, error)
+	GetByLobbyID(ctx context.Context, lobbyID uuid.UUID, limit, offset int) ([]*Attempt, error)
+	Update(ctx context.Context, attempt *Attempt) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetLastAttempt(ctx context.Context, lobbyID uuid.UUID, userID uint64) (*Attempt, error)
+	CountByLobbyID(ctx context.Context, lobbyID uuid.UUID) (int, error)
+	GetByWord(ctx context.Context, lobbyID uuid.UUID, word string) (*Attempt, error)
+}
+
+// HistoryRepository определяет методы для работы с историей
+type HistoryRepository interface {
+	Create(ctx context.Context, history *History) error
+	GetByID(ctx context.Context, id uuid.UUID) (*History, error)
+	GetByGameID(ctx context.Context, gameID uuid.UUID, limit, offset int) ([]*History, error)
+	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*History, error)
+	Update(ctx context.Context, history *History) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetByLobbyID(ctx context.Context, lobbyID uuid.UUID) (*History, error)
+	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*History, error)
+	CountByUser(ctx context.Context, userID uint64) (int, error)
+	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+}
+
+// TransactionRepository определяет методы для работы с транзакциями
+type TransactionRepository interface {
+	Create(ctx context.Context, transaction *Transaction) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Transaction, error)
+	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Transaction, error)
+	Update(ctx context.Context, transaction *Transaction) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetByType(ctx context.Context, transactionType string, limit, offset int) ([]*Transaction, error)
+	CountByUser(ctx context.Context, userID uint64) (int, error)
+	GetUserBalance(ctx context.Context, userID uint64) (float64, error)
+}

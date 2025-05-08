@@ -495,3 +495,134 @@ func (r *GameRepository) GetByDifficulty(ctx context.Context, difficulty string,
 
 	return games, nil
 }
+
+// GetByUserID получает игры по ID пользователя с пагинацией
+func (r *GameRepository) GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	query := `
+		SELECT g.id, g.creator_id, g.word, g.length, g.difficulty, g.max_tries, g.title, g.description,
+			g.min_bet, g.max_bet, g.reward_multiplier, g.currency, g.reward_pool_ton, g.reward_pool_usdt,
+			g.status, g.created_at, g.updated_at
+		FROM games g
+		JOIN lobbies l ON g.id = l.game_id
+		WHERE l.user_id = $1
+		ORDER BY g.created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games by user: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating games by user: %w", err)
+	}
+
+	return games, nil
+}
+
+// GetByStatus получает игры по статусу с пагинацией
+func (r *GameRepository) GetByStatus(ctx context.Context, status string, limit, offset int) ([]*models.Game, error) {
+	query := `
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at
+		FROM games
+		WHERE status = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, status, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get games by status: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating games by status: %w", err)
+	}
+
+	return games, nil
+}
+
+// CountByUser возвращает количество игр пользователя
+func (r *GameRepository) CountByUser(ctx context.Context, userID uint64) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT g.id)
+		FROM games g
+		JOIN lobbies l ON g.id = l.game_id
+		WHERE l.user_id = $1
+	`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count user games: %w", err)
+	}
+
+	return count, nil
+}

@@ -506,10 +506,10 @@ func (r *LobbyRepository) GetActiveWithAttempts(ctx context.Context, limit, offs
 }
 
 // ExtendExpirationTime продлевает время жизни лобби
-func (r *LobbyRepository) ExtendExpirationTime(ctx context.Context, id uuid.UUID, duration time.Duration) error {
+func (r *LobbyRepository) ExtendExpirationTime(ctx context.Context, id uuid.UUID, duration int) error {
 	query := `
 		UPDATE lobbies
-		SET expires_at = expires_at + $1, updated_at = $2
+		SET expires_at = expires_at + ($1 * interval '1 minute'), updated_at = $2
 		WHERE id = $3 AND status = 'active'
 	`
 
