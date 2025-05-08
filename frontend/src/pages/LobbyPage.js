@@ -1,420 +1,523 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { useTelegram } from '../contexts/TelegramContext';
-import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
-import WordleBoard from '../components/WordleGame/WordleBoard';
-import WordleKeyboard from '../components/WordleGame/WordleKeyboard';
-import Button from '../components/UI/Button';
-import LoadingScreen from '../components/LoadingScreen';
+import { lobbyAPI } from '../api';
+import { useAuth } from '../context/AuthContext';
+import WordleGrid from '../components/WordleGrid';
+import Keyboard from '../components/Keyboard';
 
-// Контейнер страницы
-const PageContainer = styled.div`
-  padding: 16px;
-  max-width: 600px;
+const Container = styled.div`
+  max-width: 800px;
   margin: 0 auto;
-  width: 100%;
+  padding: 16px;
 `;
 
-// Шапка с информацией
 const Header = styled.div`
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 `;
 
-// Заголовок игры
-const GameTitle = styled.h1`
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0 0 8px 0;
-  color: var(--tg-theme-text-color, #000000);
-`;
-
-// Информация об игре
-const GameInfo = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-`;
-
-// Блок с отдельной информацией
-const InfoItem = styled.div`
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-`;
-
-// Заголовок информации
-const InfoLabel = styled.span`
-  font-size: 12px;
-  color: var(--tg-theme-hint-color, #999999);
-`;
-
-// Значение информации
-const InfoValue = styled.span`
+const BackButton = styled.button`
+  background: none;
+  border: none;
+  color: #0077cc;
   font-size: 16px;
-  font-weight: 500;
-  color: var(--tg-theme-text-color, #000000);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+  
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
-// Блок с результатом игры
-const ResultPanel = styled.div`
-  background-color: ${props => props.success ? 'rgba(106, 170, 100, 0.2)' : 'rgba(231, 87, 87, 0.2)'};
+const Title = styled.h1`
+  font-size: 24px;
+  margin: 0 0 8px;
+  color: #333;
+`;
+
+const Subtitle = styled.p`
+  font-size: 16px;
+  color: #666;
+  margin: 8px 0;
+`;
+
+const InfoBar = styled.div`
+  display: flex;
+  justify-content: space-between;
+  background-color: #f9f9f9;
   border-radius: 12px;
   padding: 16px;
-  margin: 20px 0;
+  margin-bottom: 24px;
+`;
+
+const InfoItem = styled.div`
   text-align: center;
 `;
 
-// Текст результата
-const ResultText = styled.p`
-  font-size: 18px;
-  font-weight: 600;
-  color: ${props => props.success ? '#6aaa64' : '#e75757'};
-  margin: 0 0 10px 0;
+const InfoLabel = styled.div`
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
 `;
 
-// Текст награды
-const RewardText = styled.p`
+const InfoValue = styled.div`
   font-size: 16px;
-  margin: 0;
-  color: var(--tg-theme-text-color, #000000);
+  font-weight: bold;
+  color: #333;
 `;
 
-// Таймер до истечения времени лобби
-const Timer = styled.div`
-  font-size: 14px;
-  color: ${props => props.warning ? '#ff3b30' : 'var(--tg-theme-hint-color, #999999)'};
-  text-align: center;
-  margin-bottom: 16px;
+const TimerValue = styled(InfoValue)`
+  color: ${props => props.isExpiring ? '#e53935' : '#333'};
 `;
 
-// Панель с действиями
-const ActionPanel = styled.div`
+const GameSection = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 20px;
+  align-items: center;
+  margin-bottom: 24px;
+`;
+
+const InputRow = styled.div`
+  display: flex;
+  margin-bottom: 16px;
+  width: 100%;
+  max-width: 400px;
+`;
+
+const WordInput = styled.input`
+  flex: 1;
+  padding: 12px;
+  font-size: 18px;
+  border: 2px solid #d3d6da;
+  border-radius: 6px;
+  text-transform: uppercase;
+  
+  &:focus {
+    outline: none;
+    border-color: #0077cc;
+  }
+  
+  &:disabled {
+    background-color: #f9f9f9;
+    cursor: not-allowed;
+  }
+`;
+
+const SubmitButton = styled.button`
+  background-color: #0077cc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  margin-left: 8px;
+  cursor: pointer;
+  
+  &:hover {
+    background-color: #0066b3;
+  }
+  
+  &:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+`;
+
+const ResultSection = styled.div`
+  text-align: center;
+  padding: 24px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  background-color: ${props => props.success ? '#e8f5e9' : '#ffebee'};
+`;
+
+const ResultTitle = styled.h2`
+  font-size: 24px;
+  margin: 0 0 16px;
+  color: ${props => props.success ? '#2e7d32' : '#c62828'};
+`;
+
+const ResultMessage = styled.p`
+  font-size: 16px;
+  margin: 0 0 16px;
+  color: #666;
+`;
+
+const RewardAmount = styled.div`
+  font-size: 24px;
+  font-weight: bold;
+  color: #0077cc;
+  margin: 16px 0;
+`;
+
+const ActionButton = styled.button`
+  background-color: #0077cc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 16px;
+  
+  &:hover {
+    background-color: #0066b3;
+  }
+`;
+
+const LoadingIndicator = styled.div`
+  text-align: center;
+  padding: 40px 0;
+  color: #666;
+`;
+
+const ErrorMessage = styled.div`
+  background-color: #ffebee;
+  color: #c62828;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 16px 0;
+  font-size: 14px;
 `;
 
 const LobbyPage = () => {
     const { id } = useParams();
-    const navigate = useNavigate();
-    const { tg, isReady } = useTelegram();
     const { user } = useAuth();
+    const navigate = useNavigate();
 
-    // Состояния компонента
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
     const [lobby, setLobby] = useState(null);
     const [game, setGame] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState(null);
+    const [currentWord, setCurrentWord] = useState('');
+    const [timeLeft, setTimeLeft] = useState(0);
     const [attempts, setAttempts] = useState([]);
-    const [currentAttempt, setCurrentAttempt] = useState('');
-    const [letterStatuses, setLetterStatuses] = useState({});
-    const [timeLeft, setTimeLeft] = useState(null);
-    const [gameEnded, setGameEnded] = useState(false);
-    const [success, setSuccess] = useState(false);
+    const [letterStates, setLetterStates] = useState({});
 
-    // Загрузка данных лобби и игры
-    useEffect(() => {
-        const fetchLobbyData = async () => {
-            try {
-                setLoading(true);
+    // Загрузка данных лобби
+    const fetchLobbyData = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
 
-                // Получаем данные о лобби
-                const lobbyResponse = await api.lobby.get(id);
-                const lobbyData = lobbyResponse.data;
-                setLobby(lobbyData);
+            const response = await lobbyAPI.getLobby(id);
+            const lobbyData = response.data;
 
-                // Получаем данные об игре
-                const gameResponse = await api.game.get(lobbyData.game_id);
-                const gameData = gameResponse.data;
-                setGame(gameData);
+            setLobby(lobbyData);
+            setGame(lobbyData.game);
 
-                // Получаем историю попыток
-                const attemptsResponse = await api.lobby.getAttempts(id);
-                setAttempts(attemptsResponse.data || []);
+            // Преобразуем попытки в нужный формат
+            if (lobbyData.attempts && lobbyData.attempts.length > 0) {
+                const formattedAttempts = lobbyData.attempts.map(attempt => ({
+                    word: attempt.word,
+                    result: attempt.result
+                }));
+                setAttempts(formattedAttempts);
 
-                // Обновляем статусы букв на основе попыток
-                updateLetterStatuses(attemptsResponse.data || []);
-
-                // Проверяем статус лобби
-                if (lobbyData.status === 'success') {
-                    setGameEnded(true);
-                    setSuccess(true);
-                } else if (lobbyData.status === 'failed') {
-                    setGameEnded(true);
-                    setSuccess(false);
-                }
-
-                setLoading(false);
-            } catch (err) {
-                console.error('Ошибка при загрузке данных лобби:', err);
-                setError('Не удалось загрузить данные игры');
-                setLoading(false);
+                // Обновляем состояние клавиатуры
+                updateKeyboardState(formattedAttempts);
             }
-        };
 
-        fetchLobbyData();
+            // Вычисляем оставшееся время
+            if (lobbyData.expires_at) {
+                const expiresAt = new Date(lobbyData.expires_at).getTime();
+                const now = Date.now();
+                const remaining = Math.max(0, Math.floor((expiresAt - now) / 1000));
+                setTimeLeft(remaining);
+            }
+        } catch (err) {
+            console.error('Error fetching lobby:', err);
+            setError('Не удалось загрузить данные лобби');
+        } finally {
+            setLoading(false);
+        }
     }, [id]);
 
-    // Обновление статусов букв
-    const updateLetterStatuses = (attempts) => {
-        const statuses = {};
+    // Обновление состояния клавиатуры
+    const updateKeyboardState = (attemptsList) => {
+        const states = {};
 
-        attempts.forEach(attempt => {
-            const word = attempt.word.toLowerCase();
-            const result = attempt.result;
+        // Проходим по всем попыткам и обновляем состояние каждой буквы
+        attemptsList.forEach(attempt => {
+            const { word, result } = attempt;
 
             for (let i = 0; i < word.length; i++) {
-                const letter = word[i];
-                const currentStatus = statuses[letter];
-                const newStatus = result[i] === 2 ? 'correct' :
-                    result[i] === 1 ? 'present' :
-                        'absent';
+                const letter = word[i].toLowerCase();
+                const currentState = states[letter];
+                const newState = result[i];
 
-                // Приоритет статусов: correct > present > absent
-                if (currentStatus === 'correct') {
-                    continue;
-                } else if (currentStatus === 'present' && newStatus !== 'correct') {
-                    continue;
+                // Обновляем состояние буквы, если новое состояние лучше
+                if (currentState === undefined || newState > currentState) {
+                    states[letter] = newState;
                 }
-
-                statuses[letter] = newStatus;
             }
         });
 
-        setLetterStatuses(statuses);
+        setLetterStates(states);
     };
 
-    // Отслеживание времени до истечения лобби
+    // Первоначальная загрузка данных
     useEffect(() => {
-        if (!lobby || gameEnded) return;
+        fetchLobbyData();
+    }, [fetchLobbyData]);
 
-        const calculateTimeLeft = () => {
-            const now = new Date();
-            const expiresAt = new Date(lobby.expires_at);
-            const difference = expiresAt - now;
-
-            if (difference <= 0) {
-                // Время истекло
-                setTimeLeft(0);
-                setGameEnded(true);
-                setSuccess(false);
-                return;
-            }
-
-            // Формат времени: MM:SS
-            const minutes = Math.floor((difference / 1000 / 60) % 60);
-            const seconds = Math.floor((difference / 1000) % 60);
-
-            return {
-                minutes,
-                seconds,
-                total: difference
-            };
-        };
+    // Таймер для обратного отсчета
+    useEffect(() => {
+        if (!lobby || lobby.status !== 'active') return;
 
         const timer = setInterval(() => {
-            const timeLeftValue = calculateTimeLeft();
-            if (!timeLeftValue) {
-                clearInterval(timer);
-            } else {
-                setTimeLeft(timeLeftValue);
-            }
+            setTimeLeft(prevTime => {
+                if (prevTime <= 1) {
+                    clearInterval(timer);
+                    // Перезагружаем данные лобби, если время истекло
+                    fetchLobbyData();
+                    return 0;
+                }
+                return prevTime - 1;
+            });
         }, 1000);
 
-        // Начальный расчет времени
-        setTimeLeft(calculateTimeLeft());
-
         return () => clearInterval(timer);
-    }, [lobby, gameEnded]);
+    }, [lobby, fetchLobbyData]);
 
-    // Обработка нажатия на клавишу
-    const handleKeyPress = useCallback((key) => {
-        if (gameEnded || !game) return;
+    // Форматирование времени
+    const formatTime = (seconds) => {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+    };
 
-        if (key === 'Backspace') {
-            // Удаляем последнюю букву
-            setCurrentAttempt(prev => prev.slice(0, -1));
-        } else if (key === 'Enter') {
-            // Проверяем и отправляем попытку
-            if (currentAttempt.length === game.length) {
-                submitAttempt();
-            }
-        } else if (/^[а-яё]$/.test(key.toLowerCase())) {
-            // Добавляем букву (если не достигнута максимальная длина)
-            if (currentAttempt.length < game.length) {
-                setCurrentAttempt(prev => prev + key.toLowerCase());
-            }
+    // Возврат на главную страницу
+    const handleBack = () => {
+        navigate('/');
+    };
+
+    // Обработка ввода буквы
+    const handleKeyPress = (key) => {
+        if (currentWord.length < (game?.length || 5)) {
+            setCurrentWord(prev => prev + key);
         }
-    }, [currentAttempt, game, gameEnded]);
+    };
 
-    // Отправка попытки на сервер
-    const submitAttempt = async () => {
+    // Обработка удаления буквы
+    const handleDelete = () => {
+        setCurrentWord(prev => prev.slice(0, -1));
+    };
+
+    // Обработка отправки слова
+    const handleSubmit = async () => {
+        if (currentWord.length !== (game?.length || 5)) {
+            setError(`Слово должно быть длиной ${game?.length || 5} букв`);
+            return;
+        }
+
         try {
-            const response = await api.lobby.makeAttempt(id, { word: currentAttempt });
+            setSubmitting(true);
+            setError(null);
 
-            // Добавляем новую попытку в список
+            const response = await lobbyAPI.makeAttempt(id, currentWord);
+
+            // Добавляем новую попытку
             const newAttempt = {
-                word: currentAttempt,
-                result: response.data.result
+                word: currentWord,
+                result: response.data
             };
 
-            setAttempts(prev => [...prev, newAttempt]);
-            updateLetterStatuses([...attempts, newAttempt]);
-            setCurrentAttempt('');
+            const updatedAttempts = [...attempts, newAttempt];
+            setAttempts(updatedAttempts);
+            updateKeyboardState(updatedAttempts);
 
-            // Проверка на победу или проигрыш
-            if (response.data.status === 'success') {
-                setGameEnded(true);
-                setSuccess(true);
-            } else if (response.data.status === 'failed' ||
-                attempts.length + 1 >= lobby.max_tries) {
-                setGameEnded(true);
-                setSuccess(false);
-            }
+            // Очищаем поле ввода
+            setCurrentWord('');
+
+            // Перезагружаем данные лобби
+            fetchLobbyData();
         } catch (err) {
-            console.error('Ошибка при отправке попытки:', err);
-            // Можно показать сообщение об ошибке
+            console.error('Error submitting attempt:', err);
+            setError(err.response?.data?.error || 'Не удалось отправить попытку');
+        } finally {
+            setSubmitting(false);
         }
     };
 
-    // Обработка продления времени
+    // Продление времени лобби
     const handleExtendTime = async () => {
         try {
-            await api.lobby.extendTime(id, { duration: 5 }); // Продление на 5 минут
-
-            // Обновляем данные лобби для обновления времени
-            const response = await api.lobby.get(id);
-            setLobby(response.data);
+            setLoading(true);
+            await lobbyAPI.extendLobbyTime(id);
+            fetchLobbyData();
         } catch (err) {
-            console.error('Ошибка при продлении времени:', err);
+            console.error('Error extending lobby time:', err);
+            setError('Не удалось продлить время игры');
+        } finally {
+            setLoading(false);
         }
     };
 
-    // Настройка кнопок Telegram
-    useEffect(() => {
-        if (!isReady || !tg) return;
+    // Возврат на главную страницу
+    const handleReturnHome = () => {
+        navigate('/');
+    };
 
-        if (gameEnded) {
-            // Если игра завершена, предлагаем вернуться к списку игр
-            tg.MainButton.setText('Вернуться к играм');
-            tg.MainButton.show();
-            tg.MainButton.onClick(() => navigate('/'));
-        } else {
-            tg.MainButton.hide();
-        }
+    // Начать новую игру
+    const handlePlayAgain = () => {
+        navigate('/');
+    };
 
-        // Показываем кнопку "Назад"
-        tg.BackButton.show();
-        tg.BackButton.onClick(() => navigate(-1));
-
-        return () => {
-            tg.MainButton.hide();
-            tg.BackButton.hide();
-        };
-    }, [isReady, tg, gameEnded, navigate]);
-
-    if (loading) {
-        return <LoadingScreen text="Загрузка игры..." />;
-    }
-
-    if (error) {
+    if (loading && !lobby) {
         return (
-            <PageContainer>
-                <div style={{ textAlign: 'center', margin: '40px 0' }}>
-                    <p>{error}</p>
-                    <Button onClick={() => navigate('/')}>Вернуться к играм</Button>
-                </div>
-            </PageContainer>
+            <Container>
+                <LoadingIndicator>Загрузка лобби...</LoadingIndicator>
+            </Container>
         );
     }
 
+    if (error && !lobby) {
+        return (
+            <Container>
+                <BackButton onClick={handleBack}>← Вернуться на главную</BackButton>
+                <ErrorMessage>{error}</ErrorMessage>
+            </Container>
+        );
+    }
+
+    if (!lobby) {
+        return (
+            <Container>
+                <BackButton onClick={handleBack}>← Вернуться на главную</BackButton>
+                <ErrorMessage>Лобби не найдено</ErrorMessage>
+            </Container>
+        );
+    }
+
+    // Проверяем, закончена ли игра
+    const isGameFinished = lobby.status !== 'active';
+    const isSuccess = lobby.status === 'success';
+    const isExpired = lobby.status === 'failed_expired';
+    const isOutOfTries = lobby.status === 'failed_tries';
+
+    // Проверяем, мало ли времени осталось
+    const isTimeExpiring = timeLeft < 60;
+
     return (
-        <PageContainer>
+        <Container>
+            <BackButton onClick={handleBack}>← Вернуться на главную</BackButton>
+
             <Header>
-                <GameTitle>{game.title}</GameTitle>
-
-                <GameInfo>
-                    <InfoItem>
-                        <InfoLabel>Ставка</InfoLabel>
-                        <InfoValue>{lobby.bet_amount} {game.currency}</InfoValue>
-                    </InfoItem>
-
-                    <InfoItem>
-                        <InfoLabel>Возможный выигрыш</InfoLabel>
-                        <InfoValue>{lobby.potential_reward} {game.currency}</InfoValue>
-                    </InfoItem>
-
-                    <InfoItem>
-                        <InfoLabel>Попытки</InfoLabel>
-                        <InfoValue>{attempts.length}/{lobby.max_tries}</InfoValue>
-                    </InfoItem>
-                </GameInfo>
-
-                {!gameEnded && timeLeft && (
-                    <Timer warning={timeLeft.total < 60000}>
-                        Осталось времени: {timeLeft.minutes.toString().padStart(2, '0')}:
-                        {timeLeft.seconds.toString().padStart(2, '0')}
-                    </Timer>
-                )}
+                <Title>Игра "{game?.title || 'Wordle'}"</Title>
+                <Subtitle>
+                    {isGameFinished
+                        ? (isSuccess
+                            ? 'Поздравляем! Вы угадали слово!'
+                            : 'Игра завершена')
+                        : 'Угадайте слово'}
+                </Subtitle>
             </Header>
 
-            {/* Игровое поле */}
-            <WordleBoard
-                attempts={attempts}
-                maxTries={lobby.max_tries}
-                wordLength={game.length}
-                currentAttempt={currentAttempt}
-            />
+            {error && <ErrorMessage>{error}</ErrorMessage>}
 
-            {/* Результат игры */}
-            {gameEnded && (
-                <ResultPanel success={success}>
-                    <ResultText success={success}>
-                        {success ? 'Вы выиграли!' : 'Вы проиграли!'}
-                    </ResultText>
-                    {success && (
-                        <RewardText>
-                            Ваш выигрыш: {lobby.potential_reward} {game.currency}
-                        </RewardText>
-                    )}
-                    {!success && (
-                        <RewardText>
-                            Загаданное слово: {game.word.toUpperCase()}
-                        </RewardText>
-                    )}
-                </ResultPanel>
-            )}
+            <InfoBar>
+                <InfoItem>
+                    <InfoLabel>Попытки</InfoLabel>
+                    <InfoValue>{lobby.tries_used} / {lobby.max_tries}</InfoValue>
+                </InfoItem>
+                <InfoItem>
+                    <InfoLabel>Ставка</InfoLabel>
+                    <InfoValue>{lobby.bet_amount} {game?.currency}</InfoValue>
+                </InfoItem>
+                <InfoItem>
+                    <InfoLabel>Потенциальный выигрыш</InfoLabel>
+                    <InfoValue>{lobby.potential_reward} {game?.currency}</InfoValue>
+                </InfoItem>
+                {!isGameFinished && (
+                    <InfoItem>
+                        <InfoLabel>Время</InfoLabel>
+                        <TimerValue isExpiring={isTimeExpiring}>{formatTime(timeLeft)}</TimerValue>
+                    </InfoItem>
+                )}
+            </InfoBar>
 
-            {/* Клавиатура */}
-            {!gameEnded && (
-                <>
-                    <WordleKeyboard
-                        onKeyPress={handleKeyPress}
-                        letterStatuses={letterStatuses}
-                    />
+            <GameSection>
+                <WordleGrid
+                    attempts={attempts}
+                    wordLength={game?.length || 5}
+                    maxTries={lobby.max_tries}
+                />
 
-                    <ActionPanel>
-                        {timeLeft && timeLeft.total < 300000 && ( // Менее 5 минут
-                            <Button onClick={handleExtendTime}>
+                {!isGameFinished && (
+                    <>
+                        <InputRow>
+                            <WordInput
+                                type="text"
+                                value={currentWord}
+                                onChange={(e) => setCurrentWord(e.target.value.toLowerCase())}
+                                maxLength={game?.length || 5}
+                                placeholder={`Введите слово (${game?.length || 5} букв)`}
+                                disabled={submitting}
+                            />
+                            <SubmitButton
+                                onClick={handleSubmit}
+                                disabled={currentWord.length !== (game?.length || 5) || submitting}
+                            >
+                                Отправить
+                            </SubmitButton>
+                        </InputRow>
+
+                        <Keyboard
+                            onKeyPress={handleKeyPress}
+                            onEnter={handleSubmit}
+                            onDelete={handleDelete}
+                            letterStates={letterStates}
+                            disabled={submitting}
+                        />
+
+                        {timeLeft < 120 && timeLeft > 0 && (
+                            <ActionButton onClick={handleExtendTime}>
                                 Продлить время (+5 минут)
-                            </Button>
+                            </ActionButton>
                         )}
-                    </ActionPanel>
-                </>
-            )}
+                    </>
+                )}
+            </GameSection>
 
-            {gameEnded && (
-                <ActionPanel>
-                    <Button onClick={() => navigate('/')}>
-                        Вернуться к списку игр
-                    </Button>
-                </ActionPanel>
+            {isGameFinished && (
+                <ResultSection success={isSuccess}>
+                    <ResultTitle success={isSuccess}>
+                        {isSuccess ? 'Победа!' : 'Игра завершена'}
+                    </ResultTitle>
+
+                    <ResultMessage>
+                        {isSuccess && 'Поздравляем! Вы угадали слово и выиграли награду!'}
+                        {isExpired && 'Время игры истекло. Попробуйте еще раз!'}
+                        {isOutOfTries && 'Вы использовали все попытки. Попробуйте еще раз!'}
+                    </ResultMessage>
+
+                    {isSuccess && (
+                        <RewardAmount>
+                            Выигрыш: {lobby.reward || lobby.potential_reward} {game?.currency}
+                        </RewardAmount>
+                    )}
+
+                    <ActionButton onClick={handlePlayAgain}>
+                        Играть снова
+                    </ActionButton>
+
+                    <ActionButton
+                        onClick={handleReturnHome}
+                        style={{ marginTop: '8px', backgroundColor: '#f0f0f0', color: '#333' }}
+                    >
+                        Вернуться на главную
+                    </ActionButton>
+                </ResultSection>
             )}
-        </PageContainer>
+        </Container>
     );
 };
 

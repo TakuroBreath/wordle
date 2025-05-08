@@ -50,7 +50,6 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 	var input struct {
 		GameID    uuid.UUID `json:"game_id" binding:"required"`
 		BetAmount float64   `json:"bet_amount" binding:"required,gt=0"`
-		Currency  string    `json:"currency" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -70,6 +69,7 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "game not found"})
 		return
 	}
+
 	log.Info("Game found",
 		zap.String("id", game.ID.String()),
 		zap.String("title", game.Title),

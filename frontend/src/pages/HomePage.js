@@ -1,211 +1,299 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { useTelegram } from '../contexts/TelegramContext';
-import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
-import Card from '../components/UI/Card';
-import Button from '../components/UI/Button';
-import LoadingScreen from '../components/LoadingScreen';
+import { gameAPI, lobbyAPI } from '../api';
+import { useAuth } from '../context/AuthContext';
+import GameCard from '../components/GameCard';
+import BetModal from '../components/BetModal';
+import UserProfile from '../components/UserProfile';
 
-// Контейнер страницы
-const PageContainer = styled.div`
-  padding: 16px;
-  max-width: 600px;
+const Container = styled.div`
+  max-width: 800px;
   margin: 0 auto;
-  width: 100%;
+  padding: 16px;
 `;
 
-// Заголовок страницы
-const PageTitle = styled.h1`
+const Header = styled.header`
+  margin-bottom: 24px;
+`;
+
+const Title = styled.h1`
   font-size: 24px;
-  font-weight: 700;
-  margin: 0 0 16px 0;
-  color: var(--tg-theme-text-color, #000000);
-`;
-
-// Секция для кнопок действий
-const ActionSection = styled.div`
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  gap: 8px;
-`;
-
-// Панель информации о пользователе
-const UserInfoPanel = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  margin-bottom: 24px;
-  background-color: var(--tg-theme-secondary-bg-color, #f1f1f1);
-  border-radius: 12px;
-`;
-
-// Текст информации о пользователе
-const UserInfoText = styled.p`
   margin: 0;
-  font-size: 14px;
-  color: var(--tg-theme-text-color, #000000);
+  color: #333;
 `;
 
-// Список игр
-const GameList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-// Сообщение об отсутствии игр
-const EmptyMessage = styled.p`
-  text-align: center;
-  color: var(--tg-theme-hint-color, #999999);
+const Subtitle = styled.p`
   font-size: 16px;
-  margin: 40px 0;
+  color: #666;
+  margin: 8px 0 0;
 `;
 
-// Форматирование денежных значений
-const formatCurrency = (amount, currency) => {
-    return `${amount.toFixed(2)} ${currency}`;
-};
+const TabContainer = styled.div`
+  display: flex;
+  margin: 24px 0 16px;
+  border-bottom: 1px solid #ddd;
+`;
+
+const Tab = styled.button`
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  font-size: 16px;
+  font-weight: ${props => (props.active ? 'bold' : 'normal')};
+  color: ${props => (props.active ? '#0077cc' : '#333')};
+  cursor: pointer;
+  position: relative;
+  
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: ${props => (props.active ? '#0077cc' : 'transparent')};
+  }
+`;
+
+const GamesList = styled.div`
+  margin-top: 24px;
+`;
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 40px 0;
+  color: #666;
+`;
+
+const EmptyStateText = styled.p`
+  font-size: 16px;
+  margin: 16px 0;
+`;
+
+const LoadingIndicator = styled.div`
+  text-align: center;
+  padding: 40px 0;
+  color: #666;
+`;
+
+const CreateGameButton = styled.button`
+  background-color: #0077cc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 16px;
+  width: 100%;
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background-color: #0066b3;
+  }
+`;
+
+const ErrorMessage = styled.div`
+  background-color: #ffebee;
+  color: #c62828;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 16px 0;
+  font-size: 14px;
+`;
 
 const HomePage = () => {
-    const { tg, isReady } = useTelegram();
-    const { isAuthenticated, user } = useAuth();
-    const [games, setGames] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const { user, isAuthenticated, loading: authLoading } = useAuth();
     const navigate = useNavigate();
 
-    // Загрузка списка активных игр
+    const [activeTab, setActiveTab] = useState('active');
+    const [games, setGames] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [selectedGame, setSelectedGame] = useState(null);
+    const [showBetModal, setShowBetModal] = useState(false);
+
+    // Загрузка игр в зависимости от активной вкладки
     useEffect(() => {
         const fetchGames = async () => {
             try {
                 setLoading(true);
-                const response = await api.game.getActive({ limit: 10, offset: 0 });
+                setError(null);
+
+                let response;
+                if (activeTab === 'active') {
+                    response = await gameAPI.getActiveGames();
+                } else if (activeTab === 'my') {
+                    response = await gameAPI.getUserGames();
+                }
+
                 setGames(response.data || []);
             } catch (err) {
-                console.error('Ошибка при загрузке игр:', err);
+                console.error('Error fetching games:', err);
+                setError('Не удалось загрузить игры. Пожалуйста, попробуйте позже.');
             } finally {
                 setLoading(false);
             }
         };
 
         fetchGames();
-    }, []);
+    }, [activeTab]);
 
-    // Настройка главной кнопки Telegram
-    useEffect(() => {
-        if (isReady && tg) {
-            if (isAuthenticated) {
-                tg.MainButton.setText('Создать игру');
-                tg.MainButton.show();
-                tg.MainButton.onClick(() => navigate('/create-game'));
-            } else {
-                tg.MainButton.hide();
-            }
+    // Обработка нажатия на кнопку "Играть"
+    const handleJoinGame = (gameId) => {
+        if (!isAuthenticated) {
+            setError('Необходимо авторизоваться для участия в игре');
+            return;
         }
 
-        return () => {
-            if (isReady && tg) {
-                tg.MainButton.hide();
+        const game = games.find(g => g.id === gameId);
+        if (game) {
+            setSelectedGame(game);
+            setShowBetModal(true);
+        }
+    };
+
+    // Обработка нажатия на кнопку "Подробнее"
+    const handleGameDetails = (gameId) => {
+        navigate(`/games/${gameId}`);
+    };
+
+    // Обработка подтверждения ставки
+    const handleBetSubmit = async (betAmount) => {
+        try {
+            setLoading(true);
+            const response = await lobbyAPI.joinGame(selectedGame.id, betAmount);
+            setShowBetModal(false);
+
+            // Переходим на страницу лобби
+            navigate(`/lobbies/${response.data.id}`);
+        } catch (err) {
+            console.error('Error joining game:', err);
+            setError(err.response?.data?.error || 'Не удалось присоединиться к игре');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Обработка нажатия на кнопку "Создать игру"
+    const handleCreateGame = () => {
+        navigate('/games/create');
+    };
+
+    // Обработка нажатия на кнопку "Пополнить баланс"
+    const handleDeposit = () => {
+        navigate('/deposit');
+    };
+
+    // Обработка нажатия на кнопку "Вывести средства"
+    const handleWithdraw = () => {
+        navigate('/withdraw');
+    };
+
+    // Проверка активного лобби
+    useEffect(() => {
+        const checkActiveLobby = async () => {
+            if (!isAuthenticated) return;
+
+            try {
+                const response = await lobbyAPI.getActiveLobby();
+                if (response.data) {
+                    // Если есть активное лобби, перенаправляем на его страницу
+                    navigate(`/lobbies/${response.data.id}`);
+                }
+            } catch (err) {
+                // Если нет активного лобби, ничего не делаем
+                console.log('No active lobby found');
             }
         };
-    }, [isReady, tg, isAuthenticated, navigate]);
 
-    // Переход на страницу игры
-    const handleGameClick = (gameId) => {
-        navigate(`/game/${gameId}`);
-    };
+        checkActiveLobby();
+    }, [isAuthenticated, navigate]);
 
-    // Переход на страницу профиля
-    const handleProfileClick = () => {
-        navigate('/profile');
-    };
-
-    // Переход на страницу создания игры
-    const handleCreateGameClick = () => {
-        navigate('/create-game');
-    };
-
-    if (loading) {
-        return <LoadingScreen text="Загрузка игр..." />;
+    if (authLoading) {
+        return (
+            <Container>
+                <LoadingIndicator>Загрузка...</LoadingIndicator>
+            </Container>
+        );
     }
 
     return (
-        <PageContainer>
-            <PageTitle>Wordle Game</PageTitle>
+        <Container>
+            {isAuthenticated && <UserProfile onDeposit={handleDeposit} onWithdraw={handleWithdraw} />}
 
-            {isAuthenticated && (
-                <UserInfoPanel>
-                    <div>
-                        <UserInfoText>Привет, {user.first_name}!</UserInfoText>
-                        <UserInfoText>
-                            Баланс: {formatCurrency(user.balance_ton, 'TON')} / {formatCurrency(user.balance_usdt, 'USDT')}
-                        </UserInfoText>
-                    </div>
-                    <Button variant="secondary" onClick={handleProfileClick}>
-                        Профиль
-                    </Button>
-                </UserInfoPanel>
+            <Header>
+                <Title>Wordle Game</Title>
+                <Subtitle>Угадывай слова и выигрывай TON!</Subtitle>
+            </Header>
+
+            {error && <ErrorMessage>{error}</ErrorMessage>}
+
+            <TabContainer>
+                <Tab
+                    active={activeTab === 'active'}
+                    onClick={() => setActiveTab('active')}
+                >
+                    Активные игры
+                </Tab>
+
+                {isAuthenticated && (
+                    <Tab
+                        active={activeTab === 'my'}
+                        onClick={() => setActiveTab('my')}
+                    >
+                        Мои игры
+                    </Tab>
+                )}
+            </TabContainer>
+
+            {loading ? (
+                <LoadingIndicator>Загрузка игр...</LoadingIndicator>
+            ) : (
+                <GamesList>
+                    {games.length > 0 ? (
+                        games.map(game => (
+                            <GameCard
+                                key={game.id}
+                                game={game}
+                                onJoin={handleJoinGame}
+                                onDetails={handleGameDetails}
+                            />
+                        ))
+                    ) : (
+                        <EmptyState>
+                            <EmptyStateText>
+                                {activeTab === 'active'
+                                    ? 'Нет активных игр. Создайте свою игру!'
+                                    : 'У вас пока нет созданных игр.'}
+                            </EmptyStateText>
+                            {isAuthenticated && (
+                                <CreateGameButton onClick={handleCreateGame}>
+                                    Создать игру
+                                </CreateGameButton>
+                            )}
+                        </EmptyState>
+                    )}
+
+                    {activeTab === 'active' && games.length > 0 && isAuthenticated && (
+                        <CreateGameButton onClick={handleCreateGame}>
+                            Создать свою игру
+                        </CreateGameButton>
+                    )}
+                </GamesList>
             )}
 
-            <ActionSection>
-                <Button
-                    variant="primary"
-                    fullWidth
-                    onClick={handleCreateGameClick}
-                    disabled={!isAuthenticated}
-                >
-                    Создать игру
-                </Button>
-            </ActionSection>
-
-            <GameList>
-                {games.length > 0 ? (
-                    games.map((game) => (
-                        <Card
-                            key={game.id}
-                            title={game.title}
-                            clickable
-                            fullWidth
-                            onClick={() => handleGameClick(game.id)}
-                            badges={[
-                                { text: game.difficulty, variant: 'info' },
-                                { text: game.currency, variant: 'warning' }
-                            ]}
-                            footer={
-                                <>
-                                    <div>
-                                        <div style={{ fontSize: '14px', marginBottom: '4px' }}>
-                                            Ставка: {game.min_bet} - {game.max_bet} {game.currency}
-                                        </div>
-                                        <div style={{ fontSize: '14px', color: 'var(--tg-theme-hint-color, #999999)' }}>
-                                            Множитель: x{game.reward_multiplier}
-                                        </div>
-                                    </div>
-                                    <Button variant="primary">Играть</Button>
-                                </>
-                            }
-                        >
-                            <div style={{ fontSize: '14px' }}>
-                                <div>Длина слова: {game.length} букв</div>
-                                <div>Попыток: {game.max_tries}</div>
-                                <div>Призовой фонд: {
-                                    game.currency === 'TON'
-                                        ? formatCurrency(game.reward_pool_ton, 'TON')
-                                        : formatCurrency(game.reward_pool_usdt, 'USDT')
-                                }</div>
-                            </div>
-                        </Card>
-                    ))
-                ) : (
-                    <EmptyMessage>
-                        Нет активных игр. Создайте свою первую игру!
-                    </EmptyMessage>
-                )}
-            </GameList>
-        </PageContainer>
+            {showBetModal && selectedGame && (
+                <BetModal
+                    game={selectedGame}
+                    onClose={() => setShowBetModal(false)}
+                    onSubmit={handleBetSubmit}
+                    userBalance={user}
+                />
+            )}
+        </Container>
     );
 };
 

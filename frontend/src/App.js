@@ -1,95 +1,80 @@
 import React, { useEffect } from 'react';
-import { Route, Routes, Navigate } from 'react-router-dom';
-import { useTelegram } from './contexts/TelegramContext';
-import { useAuth } from './contexts/AuthContext';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-
-// Импорт компонентов страниц
+import { AuthProvider, useAuth } from './context/AuthContext';
 import HomePage from './pages/HomePage';
 import GamePage from './pages/GamePage';
 import LobbyPage from './pages/LobbyPage';
 import CreateGamePage from './pages/CreateGamePage';
+import DepositPage from './pages/DepositPage';
+import WithdrawPage from './pages/WithdrawPage';
+import MyGamesPage from './pages/MyGamesPage';
+import AllGamesPage from './pages/AllGamesPage';
 import ProfilePage from './pages/ProfilePage';
-import JoinGamePage from './pages/JoinGamePage';
-import LoadingScreen from './components/LoadingScreen';
+import BottomNavigation from './components/BottomNavigation';
 
-// Контейнер приложения со стилями, соответствующими Telegram Mini App
-const AppContainer = styled.div`
-  display: flex;
-  flex-direction: column;
+// Глобальные стили
+const GlobalStyle = styled.div`
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: #f5f5f5;
   min-height: 100vh;
-  background-color: var(--tg-theme-bg-color, #ffffff);
-  color: var(--tg-theme-text-color, #000000);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  color: #333;
+  padding-bottom: 70px; // Добавляем отступ для навигации
 `;
 
-// Компонент для защищенных маршрутов, доступных только авторизованным пользователям
+// Компонент для защищенных маршрутов
 const ProtectedRoute = ({ children }) => {
+    const { isAuthenticated, loading } = useAuth();
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        if (!loading && !isAuthenticated) {
+            navigate('/all-games');
+        }
+    }, [loading, isAuthenticated, navigate]);
+
+    if (loading) {
+        return <div>Загрузка...</div>;
+    }
+
+    if (!isAuthenticated) {
+        return null;
+    }
+
+    return children;
+};
+
+const AppRoutes = () => {
     const { isAuthenticated, loading } = useAuth();
 
     if (loading) {
-        return <LoadingScreen />;
-    }
-
-    return isAuthenticated ? children : <Navigate to="/" />;
-};
-
-function App() {
-    const { tg, isReady } = useTelegram();
-    const { loading } = useAuth();
-
-    // Настройка обработчика кнопки "Назад" в Telegram
-    useEffect(() => {
-        if (isReady && tg) {
-            // Скрываем кнопку "Назад" при загрузке приложения
-            tg.BackButton.hide();
-
-            // Функция обработки события нажатия кнопки "Назад"
-            const handleBackButton = () => {
-                window.history.back();
-            };
-
-            // Устанавливаем обработчик события
-            tg.BackButton.onClick(handleBackButton);
-
-            // Очистка обработчика при размонтировании компонента
-            return () => {
-                tg.BackButton.offClick(handleBackButton);
-            };
-        }
-    }, [isReady, tg]);
-
-    // Показываем загрузку, пока проверяем аутентификацию
-    if (loading) {
-        return <LoadingScreen />;
+        return <div>Загрузка...</div>;
     }
 
     return (
-        <AppContainer>
+        <>
             <Routes>
-                {/* Публичные маршруты */}
-                <Route path="/" element={<HomePage />} />
-                <Route path="/game/:id" element={<GamePage />} />
+                <Route path="/" element={<Navigate to="/all-games" />} />
+                <Route path="/games/:id" element={<GamePage />} />
+                <Route path="/lobbies/:id" element={<LobbyPage />} />
+
+                {/* Основные маршруты с навигацией */}
+                <Route path="/my-games" element={
+                    <ProtectedRoute>
+                        <MyGamesPage />
+                    </ProtectedRoute>
+                } />
+                <Route path="/all-games" element={<AllGamesPage />} />
+                <Route path="/profile" element={
+                    <ProtectedRoute>
+                        <ProfilePage />
+                    </ProtectedRoute>
+                } />
 
                 {/* Защищенные маршруты */}
                 <Route
-                    path="/join-game/:id"
-                    element={
-                        <ProtectedRoute>
-                            <JoinGamePage />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/lobby/:id"
-                    element={
-                        <ProtectedRoute>
-                            <LobbyPage />
-                        </ProtectedRoute>
-                    }
-                />
-                <Route
-                    path="/create-game"
+                    path="/games/create"
                     element={
                         <ProtectedRoute>
                             <CreateGamePage />
@@ -97,19 +82,63 @@ function App() {
                     }
                 />
                 <Route
-                    path="/profile"
+                    path="/deposit"
                     element={
                         <ProtectedRoute>
-                            <ProfilePage />
+                            <DepositPage />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/withdraw"
+                    element={
+                        <ProtectedRoute>
+                            <WithdrawPage />
                         </ProtectedRoute>
                     }
                 />
 
-                {/* Маршрут по умолчанию - редирект на главную */}
-                <Route path="*" element={<Navigate to="/" />} />
+                {/* Маршрут по умолчанию - перенаправление на главную */}
+                <Route path="*" element={<Navigate to="/all-games" />} />
             </Routes>
-        </AppContainer>
+            <BottomNavigation />
+        </>
     );
-}
+};
+
+const App = () => {
+    // Настройка Telegram Mini App
+    useEffect(() => {
+        const initTelegram = async () => {
+            if (window.Telegram && window.Telegram.WebApp) {
+                try {
+                    window.Telegram.WebApp.ready();
+                    window.Telegram.WebApp.expand();
+                    
+                    // Получаем данные инициализации
+                    const initData = window.Telegram.WebApp.initData;
+                    if (initData) {
+                        // Сохраняем данные в localStorage для использования в API
+                        localStorage.setItem('telegram_init_data', initData);
+                    }
+                } catch (error) {
+                    console.error('Error initializing Telegram WebApp:', error);
+                }
+            }
+        };
+
+        initTelegram();
+    }, []);
+
+    return (
+        <Router>
+            <AuthProvider>
+                <GlobalStyle>
+                    <AppRoutes />
+                </GlobalStyle>
+            </AuthProvider>
+        </Router>
+    );
+};
 
 export default App; 
