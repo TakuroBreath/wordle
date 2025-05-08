@@ -25,8 +25,11 @@ func NewTransactionRepository(db *sql.DB) *TransactionRepository {
 // Create создает новую транзакцию в базе данных
 func (r *TransactionRepository) Create(ctx context.Context, transaction *models.Transaction) error {
 	query := `
-		INSERT INTO transactions (id, user_id, amount, type, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO transactions (
+			id, user_id, amount, type, status, currency, description, tx_hash, 
+			network, game_id, lobby_id, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
 	// Генерация UUID, если он не был установлен
@@ -36,7 +39,9 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *models.
 
 	// Установка текущего времени
 	now := time.Now()
-	transaction.CreatedAt = now
+	if transaction.CreatedAt.IsZero() {
+		transaction.CreatedAt = now
+	}
 	transaction.UpdatedAt = now
 
 	_, err := r.db.ExecContext(
@@ -47,6 +52,12 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *models.
 		transaction.Amount,
 		transaction.Type,
 		transaction.Status,
+		transaction.Currency,
+		transaction.Description,
+		transaction.TxHash,
+		transaction.Network,
+		transaction.GameID,
+		transaction.LobbyID,
 		transaction.CreatedAt,
 		transaction.UpdatedAt,
 	)
@@ -61,12 +72,14 @@ func (r *TransactionRepository) Create(ctx context.Context, transaction *models.
 // GetByID получает транзакцию по ID
 func (r *TransactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Transaction, error) {
 	query := `
-		SELECT id, user_id, amount, type, status, created_at, updated_at
+		SELECT id, user_id, amount, type, status, currency, description, tx_hash, 
+		       network, game_id, lobby_id, created_at, updated_at
 		FROM transactions
 		WHERE id = $1
 	`
 
 	var transaction models.Transaction
+	var gameID, lobbyID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&transaction.ID,
@@ -74,6 +87,12 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mod
 		&transaction.Amount,
 		&transaction.Type,
 		&transaction.Status,
+		&transaction.Currency,
+		&transaction.Description,
+		&transaction.TxHash,
+		&transaction.Network,
+		&gameID,
+		&lobbyID,
 		&transaction.CreatedAt,
 		&transaction.UpdatedAt,
 	)
@@ -83,6 +102,21 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id uuid.UUID) (*mod
 			return nil, fmt.Errorf("transaction not found")
 		}
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
+	}
+
+	// Преобразование nullable полей
+	if gameID.Valid {
+		gameUUID, err := uuid.Parse(gameID.String)
+		if err == nil {
+			transaction.GameID = &gameUUID
+		}
+	}
+
+	if lobbyID.Valid {
+		lobbyUUID, err := uuid.Parse(lobbyID.String)
+		if err == nil {
+			transaction.LobbyID = &lobbyUUID
+		}
 	}
 
 	return &transaction, nil

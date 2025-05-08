@@ -1,13 +1,17 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // LobbyHandler представляет обработчики для лобби
@@ -32,36 +36,59 @@ func NewLobbyHandler(
 
 // JoinGame присоединяет пользователя к игре
 func (h *LobbyHandler) JoinGame(c *gin.Context) {
+	log := logger.GetLogger().With(zap.String("handler", "JoinGame"))
+	log.Info("JoinGame handler called")
+
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
+		log.Error("User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
 	}
+	log.Info("User ID from context", zap.Uint64("user_id", userID))
 
 	var input struct {
 		GameID    uuid.UUID `json:"game_id" binding:"required"`
 		BetAmount float64   `json:"bet_amount" binding:"required,gt=0"`
+		Currency  string    `json:"currency" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
+		log.Error("Invalid request data", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	log.Info("Request data",
+		zap.String("game_id", input.GameID.String()),
+		zap.Float64("bet_amount", input.BetAmount))
 
 	// Проверяем, что игра существует и активна
+	log.Info("Getting game", zap.String("game_id", input.GameID.String()))
 	game, err := h.gameService.GetGame(c, input.GameID)
 	if err != nil {
+		log.Error("Game not found", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": "game not found"})
 		return
 	}
+	log.Info("Game found",
+		zap.String("id", game.ID.String()),
+		zap.String("title", game.Title),
+		zap.String("status", game.Status))
 
 	if game.Status != models.GameStatusActive {
+		log.Error("Game is not active",
+			zap.String("game_id", game.ID.String()),
+			zap.String("status", game.Status))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "game is not active"})
 		return
 	}
 
 	// Проверяем, что ставка в допустимых пределах
 	if input.BetAmount < game.MinBet || input.BetAmount > game.MaxBet {
+		log.Error("Bet amount out of range",
+			zap.Float64("bet_amount", input.BetAmount),
+			zap.Float64("min_bet", game.MinBet),
+			zap.Float64("max_bet", game.MaxBet))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "bet amount is out of range",
 			"min_bet": game.MinBet,
@@ -71,17 +98,47 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 	}
 
 	// Создаем лобби
+	log.Info("Creating lobby",
+		zap.Uint64("user_id", userID),
+		zap.String("game_id", input.GameID.String()),
+		zap.Float64("bet_amount", input.BetAmount))
 	lobby := &models.Lobby{
 		GameID:    input.GameID,
 		UserID:    userID,
 		BetAmount: input.BetAmount,
 	}
 
+	// Пробуем создать лобби напрямую через репозиторий для отладки
+	log.Info("Trying direct repository access for debugging")
+
+	// Проверяем, есть ли активное лобби
+	activeLobby, err := h.lobbyService.GetActiveLobbyByGameAndUser(c, input.GameID, userID)
+	if err != nil {
+		if errors.Is(err, models.ErrLobbyNotFound) {
+			log.Info("No active lobby found, can proceed with creation")
+		} else {
+			log.Error("Error checking for active lobby",
+				zap.Error(err),
+				zap.String("error_type", fmt.Sprintf("%T", err)))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to check for existing active lobby: %v", err)})
+			return
+		}
+	} else {
+		log.Error("User already has active lobby", zap.String("lobby_id", activeLobby.ID.String()))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user already has an active lobby for this game"})
+		return
+	}
+
 	if err := h.lobbyService.CreateLobby(c, lobby); err != nil {
+		log.Error("Failed to create lobby", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info("Lobby created successfully",
+		zap.String("id", lobby.ID.String()),
+		zap.String("game_id", lobby.GameID.String()),
+		zap.Uint64("user_id", lobby.UserID))
 	c.JSON(http.StatusCreated, gin.H{
 		"id":               lobby.ID,
 		"game_id":          lobby.GameID,

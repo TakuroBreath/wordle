@@ -3,7 +3,6 @@ package postgresql
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 )
 
 // Определяем ошибку для случая, когда лобби не найдено
-var ErrLobbyNotFound = errors.New("lobby not found")
+// var ErrLobbyNotFound = errors.New("lobby not found")
 
 // LobbyRepository представляет собой реализацию репозитория для работы с лобби
 type LobbyRepository struct {
@@ -28,6 +27,17 @@ func NewLobbyRepository(db *sql.DB) *LobbyRepository {
 
 // Create создает новое лобби в базе данных
 func (r *LobbyRepository) Create(ctx context.Context, lobby *models.Lobby) error {
+	fmt.Printf("DEBUG: Creating lobby in database for user %d, game %s\n", lobby.UserID, lobby.GameID)
+
+	// Проверяем доступ к базе данных с простым запросом
+	var testCount int
+	testErr := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM lobbies").Scan(&testCount)
+	if testErr != nil {
+		fmt.Printf("ERROR: Failed to execute test query: %v\n", testErr)
+		return fmt.Errorf("database connection test failed: %w", testErr)
+	}
+	fmt.Printf("DEBUG: Database connection test successful, current lobbies count: %d\n", testCount)
+
 	query := `
 		INSERT INTO lobbies (
 			id, game_id, user_id, max_tries, tries_used, bet_amount, 
@@ -39,19 +49,26 @@ func (r *LobbyRepository) Create(ctx context.Context, lobby *models.Lobby) error
 	// Генерация UUID, если он не был установлен
 	if lobby.ID == uuid.Nil {
 		lobby.ID = uuid.New()
+		fmt.Printf("DEBUG: Generated new UUID for lobby: %s\n", lobby.ID)
 	}
 
 	// Установка текущего времени
 	now := time.Now()
 	if lobby.CreatedAt.IsZero() {
 		lobby.CreatedAt = now
+		fmt.Printf("DEBUG: Setting created_at to %v\n", now)
 	}
 	lobby.UpdatedAt = now
 
 	// Установка времени истечения (5 минут после создания)
 	if lobby.ExpiresAt.IsZero() {
 		lobby.ExpiresAt = now.Add(5 * time.Minute)
+		fmt.Printf("DEBUG: Setting expires_at to %v\n", lobby.ExpiresAt)
 	}
+
+	fmt.Printf("DEBUG: Executing SQL query: %s\n", query)
+	fmt.Printf("DEBUG: Parameters: id=%s, game_id=%s, user_id=%d, max_tries=%d, tries_used=%d, bet_amount=%.2f, potential_reward=%.2f, status=%s\n",
+		lobby.ID, lobby.GameID, lobby.UserID, lobby.MaxTries, lobby.TriesUsed, lobby.BetAmount, lobby.PotentialReward, lobby.Status)
 
 	_, err := r.db.ExecContext(
 		ctx,
@@ -70,9 +87,11 @@ func (r *LobbyRepository) Create(ctx context.Context, lobby *models.Lobby) error
 	)
 
 	if err != nil {
+		fmt.Printf("ERROR: Failed to create lobby in database: %v\n", err)
 		return fmt.Errorf("failed to create lobby: %w", err)
 	}
 
+	fmt.Printf("INFO: Lobby %s created successfully in database\n", lobby.ID)
 	return nil
 }
 
@@ -386,6 +405,8 @@ func (r *LobbyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // GetActiveByGameAndUser получает активное лобби пользователя в игре
 func (r *LobbyRepository) GetActiveByGameAndUser(ctx context.Context, gameID uuid.UUID, userID uint64) (*models.Lobby, error) {
+	fmt.Printf("DEBUG: GetActiveByGameAndUser called for game %s, user %d\n", gameID, userID)
+
 	query := `
 		SELECT id, game_id, user_id, max_tries, tries_used, bet_amount,
 			potential_reward, status, created_at, updated_at, expires_at
@@ -394,6 +415,9 @@ func (r *LobbyRepository) GetActiveByGameAndUser(ctx context.Context, gameID uui
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
+
+	fmt.Printf("DEBUG: Executing SQL query: %s\n", query)
+	fmt.Printf("DEBUG: Parameters: gameID=%s, userID=%d\n", gameID, userID)
 
 	var lobby models.Lobby
 
@@ -413,11 +437,14 @@ func (r *LobbyRepository) GetActiveByGameAndUser(ctx context.Context, gameID uui
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrLobbyNotFound
+			fmt.Printf("DEBUG: No active lobby found for game %s, user %d\n", gameID, userID)
+			return nil, models.ErrLobbyNotFound
 		}
+		fmt.Printf("ERROR: Database error in GetActiveByGameAndUser: %v\n", err)
 		return nil, fmt.Errorf("failed to get active lobby: %w", err)
 	}
 
+	fmt.Printf("DEBUG: Found active lobby %s for game %s, user %d\n", lobby.ID, gameID, userID)
 	return &lobby, nil
 }
 

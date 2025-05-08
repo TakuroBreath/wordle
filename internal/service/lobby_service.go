@@ -49,81 +49,116 @@ func NewLobbyService(
 
 // CreateLobby создает новое лобби
 func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby) error {
+	fmt.Printf("DEBUG: Starting CreateLobby for user %d, game %s\n", lobby.UserID, lobby.GameID)
+
+	// Проверяем, что ошибка ErrLobbyNotFound определена и доступна
+	testErr := models.ErrLobbyNotFound
+	fmt.Printf("DEBUG: ErrLobbyNotFound defined: %v\n", testErr)
+
 	if lobby == nil {
+		fmt.Printf("ERROR: Lobby is nil\n")
 		return errors.New("lobby is nil")
 	}
 	if lobby.GameID == uuid.Nil {
+		fmt.Printf("ERROR: Game ID is required\n")
 		return errors.New("game ID is required")
 	}
 	if lobby.UserID == 0 {
+		fmt.Printf("ERROR: User ID is required\n")
 		return errors.New("user ID is required")
 	}
 	if lobby.BetAmount <= 0 {
+		fmt.Printf("ERROR: Bet amount must be positive\n")
 		return errors.New("bet amount must be positive")
 	}
 
 	// Проверяем существование игры и ее статус
+	fmt.Printf("DEBUG: Getting game %s\n", lobby.GameID)
 	game, err := s.gameRepo.GetByID(ctx, lobby.GameID)
 	if err != nil {
 		if errors.Is(err, models.ErrGameNotFound) {
+			fmt.Printf("ERROR: Game %s not found\n", lobby.GameID)
 			return errors.New("game not found")
 		}
+		fmt.Printf("ERROR: Failed to get game %s: %v\n", lobby.GameID, err)
 		return fmt.Errorf("failed to get game: %w", err)
 	}
 	if game.Status != models.GameStatusActive {
+		fmt.Printf("ERROR: Game %s is not active, status: %s\n", lobby.GameID, game.Status)
 		return errors.New("game is not active")
 	}
 
 	// Проверяем ставку пользователя
 	if lobby.BetAmount < game.MinBet || lobby.BetAmount > game.MaxBet {
+		fmt.Printf("ERROR: Bet amount %.2f is out of range [%.2f, %.2f]\n", lobby.BetAmount, game.MinBet, game.MaxBet)
 		return fmt.Errorf("bet amount %.2f is out of range [%.2f, %.2f]", lobby.BetAmount, game.MinBet, game.MaxBet)
 	}
 
 	// Проверяем баланс пользователя через userService
+	fmt.Printf("DEBUG: Validating balance for user %d, amount %.2f %s\n", lobby.UserID, lobby.BetAmount, game.Currency)
 	hasBalance, err := s.userService.ValidateBalance(ctx, lobby.UserID, lobby.BetAmount, game.Currency)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to validate user balance: %v\n", err)
 		return fmt.Errorf("failed to validate user balance: %w", err)
 	}
 	if !hasBalance {
+		fmt.Printf("ERROR: Insufficient %s balance for user %d\n", game.Currency, lobby.UserID)
 		return fmt.Errorf("insufficient %s balance", game.Currency)
 	}
 
 	// Проверяем, нет ли уже активного лобби у пользователя для этой игры
+	fmt.Printf("DEBUG: Checking for existing active lobby for user %d in game %s\n", lobby.UserID, lobby.GameID)
 	activeLobby, err := s.lobbyRepo.GetActiveByGameAndUser(ctx, lobby.GameID, lobby.UserID)
 	if err != nil {
-		if errors.Is(err, models.ErrLobbyNotFound) {
+		if err.Error() == "lobby not found" || errors.Is(err, models.ErrLobbyNotFound) {
 			// Если лобби не найдено, это нормально - продолжаем создание нового
+			fmt.Printf("DEBUG: No active lobby found for user %d in game %s, continuing\n", lobby.UserID, lobby.GameID)
 			activeLobby = nil
 		} else {
-			return fmt.Errorf("failed to check for existing active lobby: %w", err)
+			fmt.Printf("ERROR: Failed to check for existing active lobby: %v\n", err)
+			// В случае ошибки репозитория, мы продолжаем создание нового лобби
+			// Это может привести к дублированию лобби, но лучше, чем блокировать пользователя
+			fmt.Printf("WARNING: Ignoring repository error and continuing with new lobby creation\n")
+			activeLobby = nil
 		}
 	}
 	if activeLobby != nil {
+		fmt.Printf("ERROR: User %d already has an active lobby for game %s\n", lobby.UserID, lobby.GameID)
 		return errors.New("user already has an active lobby for this game")
 	}
 
 	// Списываем ставку с баланса пользователя через userService
+	fmt.Printf("DEBUG: Deducting bet %.2f %s from user %d balance\n", lobby.BetAmount, game.Currency, lobby.UserID)
 	if game.Currency == models.CurrencyTON {
 		err = s.userService.UpdateTonBalance(ctx, lobby.UserID, -lobby.BetAmount)
 	} else if game.Currency == models.CurrencyUSDT {
 		err = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, -lobby.BetAmount)
 	} else {
+		fmt.Printf("ERROR: Unknown game currency: %s\n", game.Currency)
 		return fmt.Errorf("unknown game currency: %s", game.Currency)
 	}
 	if err != nil {
+		fmt.Printf("ERROR: Failed to deduct bet from user balance: %v\n", err)
 		return fmt.Errorf("failed to deduct bet from user balance: %w", err)
 	}
 
 	// Создаем транзакцию ставки
+	fmt.Printf("DEBUG: Creating bet transaction for user %d\n", lobby.UserID)
+	fmt.Printf("DEBUG: Game currency: %s\n", game.Currency)
 	betTx := &models.Transaction{
-		UserID:   lobby.UserID,
-		Type:     models.TransactionTypeBet,
-		Amount:   lobby.BetAmount,
-		Currency: game.Currency,
-		Status:   models.TransactionStatusCompleted,
-		GameID:   &game.ID,
+		UserID:      lobby.UserID,
+		Type:        models.TransactionTypeBet,
+		Amount:      lobby.BetAmount,
+		Currency:    game.Currency,
+		Status:      models.TransactionStatusCompleted,
+		GameID:      &game.ID,
+		Description: fmt.Sprintf("Bet for game %s", game.Title),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
+	fmt.Printf("DEBUG: Transaction currency: %s\n", betTx.Currency)
 	if err := s.transactionService.CreateTransaction(ctx, betTx); err != nil {
+		fmt.Printf("ERROR: Failed to create bet transaction: %v\n", err)
 		var refundErr error
 		if game.Currency == models.CurrencyTON {
 			refundErr = s.userService.UpdateTonBalance(ctx, lobby.UserID, lobby.BetAmount)
@@ -131,14 +166,17 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 			refundErr = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, lobby.BetAmount)
 		}
 		if refundErr != nil {
+			fmt.Printf("CRITICAL: Failed to refund user %d after transaction failure: %v\n", lobby.UserID, refundErr)
 			return fmt.Errorf("CRITICAL: failed to create bet transaction and failed to refund user %d: %w; refund error: %v", lobby.UserID, err, refundErr)
 		}
+		fmt.Printf("INFO: User %d was refunded %.2f %s after transaction failure\n", lobby.UserID, lobby.BetAmount, game.Currency)
 		return fmt.Errorf("failed to create bet transaction (user balance was refunded): %w", err)
 	}
 
 	// Устанавливаем начальные значения для лобби
+	fmt.Printf("DEBUG: Setting up lobby properties\n")
 	lobby.ID = uuid.New()
-	lobby.Status = models.LobbyStatusActive // Используем константу (нужно определить)
+	lobby.Status = models.LobbyStatusActive
 	lobby.CreatedAt = time.Now()
 	lobby.UpdatedAt = lobby.CreatedAt
 	lobby.ExpiresAt = lobby.CreatedAt.Add(5 * time.Minute)
@@ -148,10 +186,13 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 	lobby.Attempts = nil
 
 	// Сохраняем лобби
+	fmt.Printf("DEBUG: Creating lobby in database with ID %s\n", lobby.ID)
 	if err := s.lobbyRepo.Create(ctx, lobby); err != nil {
+		fmt.Printf("ERROR: Failed to create lobby in database: %v\n", err)
 		return fmt.Errorf("failed to create lobby after processing bet: %w", err)
 	}
 
+	fmt.Printf("INFO: Lobby %s created successfully for user %d in game %s\n", lobby.ID, lobby.UserID, lobby.GameID)
 	return nil
 }
 
