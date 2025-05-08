@@ -10,6 +10,7 @@ import GamePage from './pages/GamePage';
 import LobbyPage from './pages/LobbyPage';
 import CreateGamePage from './pages/CreateGamePage';
 import ProfilePage from './pages/ProfilePage';
+import JoinGamePage from './pages/JoinGamePage';
 import LoadingScreen from './components/LoadingScreen';
 
 // Контейнер приложения со стилями, соответствующими Telegram Mini App
@@ -71,6 +72,14 @@ function App() {
                 <Route path="/game/:id" element={<GamePage />} />
 
                 {/* Защищенные маршруты */}
+                <Route
+                    path="/join-game/:id"
+                    element={
+                        <ProtectedRoute>
+                            <JoinGamePage />
+                        </ProtectedRoute>
+                    }
+                />
                 <Route
                     path="/lobby/:id"
                     element={

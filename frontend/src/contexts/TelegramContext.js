@@ -24,14 +24,27 @@ export function TelegramProvider({ children }) {
         if (webApp) {
             // Инициализация завершена - API доступно
             webApp.ready();
+            console.log('Telegram WebApp API инициализирован');
 
             // Устанавливаем данные в состояние
             setTg(webApp);
             setUser(webApp.initDataUnsafe?.user || null);
-            setInitData(webApp.initData || null);
+
+            // Получаем и логируем initData
+            const initDataValue = webApp.initData || null;
+            console.log('Получены данные инициализации Telegram:', {
+                initDataLength: initDataValue ? initDataValue.length : 0,
+                user: webApp.initDataUnsafe?.user
+            });
+            setInitData(initDataValue);
 
             // Устанавливаем инициализационные данные в API клиент
-            api.setTelegramInitData(webApp.initData);
+            if (initDataValue) {
+                console.log('Установка initData в API клиент');
+                api.setTelegramInitData(initDataValue);
+            } else {
+                console.warn('initData отсутствует или пуст');
+            }
 
             // Настраиваем внешний вид приложения
             webApp.expand();
@@ -44,9 +57,10 @@ export function TelegramProvider({ children }) {
 
             setIsReady(true);
         } else {
-            console.error('Telegram WebApp API не доступен');
+            console.warn('Telegram WebApp API не доступен, использую режим разработки');
             // Для разработки - эмулируем пользователя и окружение
             if (process.env.NODE_ENV === 'development') {
+                console.log('Инициализация эмуляции Telegram WebApp для разработки');
                 setTg({
                     MainButton: {
                         show: () => console.log('MainButton.show'),
@@ -72,18 +86,37 @@ export function TelegramProvider({ children }) {
                     ready: () => console.log('WebApp.ready')
                 });
 
-                setUser({
+                // Создаем тестового пользователя
+                const testUser = {
                     id: 12345678,
                     first_name: 'Test',
                     last_name: 'User',
                     username: 'testuser',
                     language_code: 'ru'
-                });
+                };
+                setUser(testUser);
 
-                // Создаем тестовые данные инициализации в формате, который ожидает сервер
-                const testInitData = 'user=%7B%22id%22%3A12345678%2C%22first_name%22%3A%22Test%22%2C%22last_name%22%3A%22User%22%2C%22username%22%3A%22testuser%22%2C%22language_code%22%3A%22ru%22%7D&auth_date=1234567890&hash=1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
-                setInitData(testInitData);
-                api.setTelegramInitData(testInitData);
+                // Проверяем, есть ли сохраненный токен
+                const savedToken = localStorage.getItem('token');
+                if (savedToken && savedToken.startsWith('dev_')) {
+                    console.log('Найден сохраненный тестовый токен для режима разработки');
+                    // Если есть тестовый токен, используем его
+                    api.setAuthToken(savedToken);
+                    setInitData(null); // Не используем initData в этом случае
+                } else {
+                    // Создаем тестовые данные инициализации в формате, который ожидает сервер
+                    // Это должно быть в формате query-string, который Telegram отправляет в initData
+                    console.log('Создание тестовых данных инициализации для режима разработки');
+
+                    // Генерируем тестовый токен
+                    const devToken = 'dev_test_token_for_development_only';
+                    localStorage.setItem('token', devToken);
+                    api.setAuthToken(devToken);
+
+                    // Не используем initData, так как у нас есть тестовый токен
+                    setInitData(null);
+                }
+
                 setIsReady(true);
             }
         }

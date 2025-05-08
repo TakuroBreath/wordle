@@ -3,12 +3,16 @@ package postgresql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
 )
+
+// Определяем ошибку для случая, когда лобби не найдено
+var ErrLobbyNotFound = errors.New("lobby not found")
 
 // LobbyRepository представляет собой реализацию репозитория для работы с лобби
 type LobbyRepository struct {
@@ -409,7 +413,7 @@ func (r *LobbyRepository) GetActiveByGameAndUser(ctx context.Context, gameID uui
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("active lobby not found")
+			return nil, ErrLobbyNotFound
 		}
 		return nil, fmt.Errorf("failed to get active lobby: %w", err)
 	}

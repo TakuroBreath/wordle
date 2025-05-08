@@ -8,14 +8,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// Определяем ошибки для репозитория
+var (
+	ErrLobbyNotFound = errors.New("lobby not found")
+)
+
 // ErrUserNotFound ошибка, когда пользователь не найден
 var ErrUserNotFound = errors.New("user not found")
 
 // ErrGameNotFound ошибка, когда игра не найдена
 var ErrGameNotFound = errors.New("game not found")
-
-// ErrLobbyNotFound ошибка, когда лобби не найдено
-var ErrLobbyNotFound = errors.New("lobby not found")
 
 // GameRepository определяет методы для работы с играми
 type GameRepository interface {

@@ -70,7 +70,7 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 		}
 		return fmt.Errorf("failed to get game: %w", err)
 	}
-	if game.Status != models.GameStatusActive { // Используем константу
+	if game.Status != models.GameStatusActive {
 		return errors.New("game is not active")
 	}
 
@@ -90,8 +90,13 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 
 	// Проверяем, нет ли уже активного лобби у пользователя для этой игры
 	activeLobby, err := s.lobbyRepo.GetActiveByGameAndUser(ctx, lobby.GameID, lobby.UserID)
-	if err != nil && !errors.Is(err, models.ErrLobbyNotFound) { // Предполагаем ErrLobbyNotFound
-		return fmt.Errorf("failed to check for existing active lobby: %w", err)
+	if err != nil {
+		if errors.Is(err, models.ErrLobbyNotFound) {
+			// Если лобби не найдено, это нормально - продолжаем создание нового
+			activeLobby = nil
+		} else {
+			return fmt.Errorf("failed to check for existing active lobby: %w", err)
+		}
 	}
 	if activeLobby != nil {
 		return errors.New("user already has an active lobby for this game")
