@@ -10,12 +10,14 @@ import (
 // AuthHandler представляет обработчики для аутентификации
 type AuthHandler struct {
 	authService models.AuthService
+	botToken    string
 }
 
 // NewAuthHandler создает новый экземпляр AuthHandler
-func NewAuthHandler(authService models.AuthService) *AuthHandler {
+func NewAuthHandler(authService models.AuthService, botToken string) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
+		botToken:    botToken,
 	}
 }
 
@@ -30,6 +32,7 @@ func (h *AuthHandler) TelegramAuth(c *gin.Context) {
 		return
 	}
 
+	// Генерируем JWT токен для клиента на основе данных инициализации
 	token, err := h.authService.InitAuth(c, input.InitData)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})

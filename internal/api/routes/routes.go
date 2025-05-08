@@ -14,6 +14,7 @@ func SetupRouter(
 	gameService models.GameService,
 	lobbyService models.LobbyService,
 	transactionService models.TransactionService,
+	botToken string,
 ) *gin.Engine {
 	router := gin.New()
 
@@ -23,14 +24,14 @@ func SetupRouter(
 	router.Use(middleware.CORS())
 
 	// Инициализация обработчиков
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := handlers.NewAuthHandler(authService, botToken)
 	userHandler := handlers.NewUserHandler(userService, transactionService)
 	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService)
 	lobbyHandler := handlers.NewLobbyHandler(lobbyService, gameService, userService)
 	transactionHandler := handlers.NewTransactionHandler(transactionService, userService)
 
 	// Middleware для аутентификации
-	authMiddleware := middleware.NewAuthMiddleware(authService)
+	authMiddleware := middleware.NewAuthMiddleware(authService, botToken)
 
 	// Публичные маршруты
 	public := router.Group("/api/v1")

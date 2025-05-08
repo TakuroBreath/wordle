@@ -71,6 +71,13 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 				return
 			}
 
+			// Получаем или создаем пользователя из данных Telegram
+			token, err := m.authService.InitAuth(c, authData)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				return
+			}
+
 			// Парсим данные
 			tmaData, err := initdata.Parse(authData)
 			if err != nil {
@@ -78,19 +85,9 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 				return
 			}
 
-			// Добавляем данные в контекст
-			c.Request = c.Request.WithContext(WithInitData(c.Request.Context(), tmaData))
-
-			// Получаем или создаем пользователя из данных Telegram
-			user, err := m.authService.InitAuth(c, authData)
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-				return
-			}
-
-			// Сохраняем пользователя в контексте
-			c.Set("user", user)
-			c.Set("user_id", user.TelegramID)
+			// Сохраняем данные в контексте
+			c.Set("user", token)
+			c.Set("user_id", uint64(tmaData.User.ID))
 
 		case "Bearer":
 			// Прежний метод JWT-авторизации

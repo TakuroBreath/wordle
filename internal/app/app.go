@@ -47,6 +47,7 @@ func New(cfg *config.Config) (*App, error) {
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
+		BotToken:     cfg.Auth.BotToken,
 	}
 	httpServer := server.NewServer(serverConfig, services)
 

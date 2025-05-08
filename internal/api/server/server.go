@@ -20,6 +20,7 @@ type Config struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	BotToken     string
 }
 
 // Server представляет HTTP-сервер приложения
@@ -37,6 +38,7 @@ func NewServer(cfg Config, services *service.ServiceImpl) *Server {
 		services.Game(),
 		services.Lobby(),
 		services.Transaction(),
+		cfg.BotToken,
 	)
 
 	// Создание HTTP-сервера
