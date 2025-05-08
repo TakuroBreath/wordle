@@ -6,24 +6,34 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // GameRepository представляет собой реализацию репозитория для работы с играми
 type GameRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *zap.Logger
 }
 
 // NewGameRepository создает новый экземпляр GameRepository
 func NewGameRepository(db *sql.DB) *GameRepository {
 	return &GameRepository{
-		db: db,
+		db:     db,
+		logger: logger.GetLogger(zap.String("repository", "game")),
 	}
 }
 
 // Create создает новую игру в базе данных
 func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
+	log := r.logger.With(zap.String("method", "Create"))
+	log.Info("Creating new game",
+		zap.String("creator_id", fmt.Sprintf("%d", game.CreatorID)),
+		zap.String("word", game.Word),
+		zap.String("title", game.Title))
+
 	query := `
 		INSERT INTO games (id, creator_id, word, length, difficulty, max_tries, title, description, min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -32,6 +42,7 @@ func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 	// Генерация UUID, если он не был установлен
 	if game.ID == uuid.Nil {
 		game.ID = uuid.New()
+		log.Debug("Generated new UUID for game", zap.String("game_id", game.ID.String()))
 	}
 
 	// Установка текущего времени, если оно не было установлено
@@ -40,6 +51,14 @@ func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 		game.CreatedAt = now
 	}
 	game.UpdatedAt = now
+
+	log.Debug("Executing SQL query",
+		zap.String("query", query),
+		zap.String("game_id", game.ID.String()),
+		zap.String("word", game.Word),
+		zap.Int("length", game.Length),
+		zap.String("difficulty", game.Difficulty),
+		zap.String("status", game.Status))
 
 	_, err := r.db.ExecContext(
 		ctx,
@@ -64,14 +83,19 @@ func (r *GameRepository) Create(ctx context.Context, game *models.Game) error {
 	)
 
 	if err != nil {
+		log.Error("Failed to create game", zap.Error(err), zap.String("game_id", game.ID.String()))
 		return fmt.Errorf("failed to create game: %w", err)
 	}
 
+	log.Info("Game created successfully", zap.String("game_id", game.ID.String()))
 	return nil
 }
 
 // GetByID получает игру по ID
 func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Game, error) {
+	log := r.logger.With(zap.String("method", "GetByID"), zap.String("game_id", id.String()))
+	log.Info("Getting game by ID")
+
 	query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
@@ -79,6 +103,8 @@ func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Gam
 		FROM games
 		WHERE id = $1
 	`
+
+	log.Debug("Executing SQL query", zap.String("query", query))
 
 	var game models.Game
 
@@ -104,16 +130,25 @@ func (r *GameRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Gam
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("game not found")
+			log.Warn("Game not found", zap.String("game_id", id.String()))
+			return nil, models.ErrGameNotFound
 		}
+		log.Error("Failed to get game", zap.Error(err), zap.String("game_id", id.String()))
 		return nil, fmt.Errorf("failed to get game: %w", err)
 	}
 
+	log.Info("Game found",
+		zap.String("game_id", game.ID.String()),
+		zap.String("title", game.Title),
+		zap.String("status", game.Status))
 	return &game, nil
 }
 
 // GetAll получает все игры с пагинацией
 func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+	log := r.logger.With(zap.String("method", "GetAll"))
+	log.Info("Getting all games", zap.Int("limit", limit), zap.Int("offset", offset))
+
 	query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
@@ -123,8 +158,11 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 		LIMIT $1 OFFSET $2
 	`
 
+	log.Debug("Executing SQL query", zap.String("query", query))
+
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
+		log.Error("Failed to get games", zap.Error(err))
 		return nil, fmt.Errorf("failed to get games: %w", err)
 	}
 	defer rows.Close()
@@ -154,6 +192,7 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 		)
 
 		if err != nil {
+			log.Error("Failed to scan game", zap.Error(err))
 			return nil, fmt.Errorf("failed to scan game: %w", err)
 		}
 
@@ -161,14 +200,19 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 	}
 
 	if err = rows.Err(); err != nil {
+		log.Error("Error iterating games", zap.Error(err))
 		return nil, fmt.Errorf("error iterating games: %w", err)
 	}
 
+	log.Info("Retrieved games", zap.Int("count", len(games)))
 	return games, nil
 }
 
 // GetActive получает все активные игры с пагинацией
 func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+	log := r.logger.With(zap.String("method", "GetActive"))
+	log.Info("Getting active games", zap.Int("limit", limit), zap.Int("offset", offset))
+
 	query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
@@ -179,8 +223,11 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 		LIMIT $1 OFFSET $2
 	`
 
+	log.Debug("Executing SQL query", zap.String("query", query))
+
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
+		log.Error("Failed to get active games", zap.Error(err))
 		return nil, fmt.Errorf("failed to get active games: %w", err)
 	}
 	defer rows.Close()
@@ -210,6 +257,7 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 		)
 
 		if err != nil {
+			log.Error("Failed to scan game", zap.Error(err))
 			return nil, fmt.Errorf("failed to scan game: %w", err)
 		}
 
@@ -217,9 +265,11 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 	}
 
 	if err = rows.Err(); err != nil {
+		log.Error("Error iterating active games", zap.Error(err))
 		return nil, fmt.Errorf("error iterating active games: %w", err)
 	}
 
+	log.Info("Retrieved active games", zap.Int("count", len(games)))
 	return games, nil
 }
 
@@ -281,17 +331,22 @@ func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, lim
 
 // Update обновляет игру в базе данных
 func (r *GameRepository) Update(ctx context.Context, game *models.Game) error {
+	log := r.logger.With(zap.String("method", "Update"), zap.String("game_id", game.ID.String()))
+	log.Info("Updating game",
+		zap.String("title", game.Title),
+		zap.String("status", game.Status))
+
 	query := `
 		UPDATE games
-		SET creator_id = $1, word = $2, length = $3, difficulty = $4,
-			max_tries = $5, title = $6, description = $7, min_bet = $8,
-			max_bet = $9, reward_multiplier = $10, currency = $11,
-			reward_pool_ton = $12, reward_pool_usdt = $13, status = $14,
-			updated_at = $15
+		SET creator_id = $1, word = $2, length = $3, difficulty = $4, max_tries = $5,
+			title = $6, description = $7, min_bet = $8, max_bet = $9, reward_multiplier = $10,
+			currency = $11, reward_pool_ton = $12, reward_pool_usdt = $13, status = $14, updated_at = $15
 		WHERE id = $16
 	`
 
 	game.UpdatedAt = time.Now()
+
+	log.Debug("Executing SQL query", zap.String("query", query))
 
 	_, err := r.db.ExecContext(
 		ctx,
@@ -315,21 +370,30 @@ func (r *GameRepository) Update(ctx context.Context, game *models.Game) error {
 	)
 
 	if err != nil {
+		log.Error("Failed to update game", zap.Error(err))
 		return fmt.Errorf("failed to update game: %w", err)
 	}
 
+	log.Info("Game updated successfully", zap.String("game_id", game.ID.String()))
 	return nil
 }
 
 // Delete удаляет игру из базы данных
 func (r *GameRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	log := r.logger.With(zap.String("method", "Delete"), zap.String("game_id", id.String()))
+	log.Info("Deleting game")
+
 	query := `DELETE FROM games WHERE id = $1`
+
+	log.Debug("Executing SQL query", zap.String("query", query))
 
 	_, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
+		log.Error("Failed to delete game", zap.Error(err))
 		return fmt.Errorf("failed to delete game: %w", err)
 	}
 
+	log.Info("Game deleted successfully", zap.String("game_id", id.String()))
 	return nil
 }
 
@@ -385,35 +449,48 @@ func (r *GameRepository) GetActiveByCreator(ctx context.Context, creatorID uint6
 	return games, nil
 }
 
-// UpdateStatus обновляет только статус игры
+// UpdateStatus обновляет статус игры
 func (r *GameRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	query := `
-		UPDATE games
-		SET status = $1, updated_at = $2
-		WHERE id = $3
-	`
+	log := r.logger.With(
+		zap.String("method", "UpdateStatus"),
+		zap.String("game_id", id.String()),
+		zap.String("status", status))
+	log.Info("Updating game status")
+
+	query := `UPDATE games SET status = $1, updated_at = $2 WHERE id = $3`
+
+	log.Debug("Executing SQL query", zap.String("query", query))
 
 	_, err := r.db.ExecContext(ctx, query, status, time.Now(), id)
 	if err != nil {
+		log.Error("Failed to update game status", zap.Error(err))
 		return fmt.Errorf("failed to update game status: %w", err)
 	}
 
+	log.Info("Game status updated successfully")
 	return nil
 }
 
-// UpdateRewardPool обновляет пул наград
+// UpdateRewardPool обновляет пул наград игры
 func (r *GameRepository) UpdateRewardPool(ctx context.Context, id uuid.UUID, rewardPoolTon, rewardPoolUsdt float64) error {
-	query := `
-		UPDATE games
-		SET reward_pool_ton = $1, reward_pool_usdt = $2, updated_at = $3
-		WHERE id = $4
-	`
+	log := r.logger.With(
+		zap.String("method", "UpdateRewardPool"),
+		zap.String("game_id", id.String()),
+		zap.Float64("reward_pool_ton", rewardPoolTon),
+		zap.Float64("reward_pool_usdt", rewardPoolUsdt))
+	log.Info("Updating game reward pool")
+
+	query := `UPDATE games SET reward_pool_ton = $1, reward_pool_usdt = $2, updated_at = $3 WHERE id = $4`
+
+	log.Debug("Executing SQL query", zap.String("query", query))
 
 	_, err := r.db.ExecContext(ctx, query, rewardPoolTon, rewardPoolUsdt, time.Now(), id)
 	if err != nil {
+		log.Error("Failed to update game reward pool", zap.Error(err))
 		return fmt.Errorf("failed to update game reward pool: %w", err)
 	}
 
+	log.Info("Game reward pool updated successfully")
 	return nil
 }
 

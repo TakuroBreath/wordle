@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/gin-gonic/gin"
 	initdata "github.com/telegram-mini-apps/init-data-golang"
+	"go.uber.org/zap"
 )
 
 type contextKey string
@@ -22,6 +24,7 @@ const (
 type AuthMiddleware struct {
 	authService models.AuthService
 	botToken    string
+	logger      *zap.Logger
 }
 
 // NewAuthMiddleware создает новый middleware для аутентификации
@@ -29,6 +32,7 @@ func NewAuthMiddleware(authService models.AuthService, botToken string) *AuthMid
 	return &AuthMiddleware{
 		authService: authService,
 		botToken:    botToken,
+		logger:      logger.GetLogger(zap.String("middleware", "auth")),
 	}
 }
 
@@ -46,66 +50,97 @@ func GetInitDataFromContext(ctx context.Context) (initdata.InitData, bool) {
 // RequireAuth проверяет авторизацию пользователя
 func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Получаем заголовок Authorization
+		log := logger.GetLogger(
+			zap.String("middleware", "auth"),
+			zap.String("handler", "RequireAuth"),
+			zap.String("path", c.Request.URL.Path),
+			zap.String("method", c.Request.Method),
+		)
+		log.Info("Checking authentication")
+
+		// Получаем токен из заголовка
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authorization header is required"})
+			log.Warn("No Authorization header provided")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization header is required"})
+			c.Abort()
 			return
 		}
 
-		// Извлекаем тип авторизации и данные
-		authParts := strings.Split(authHeader, " ")
-		if len(authParts) != 2 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
+		// Проверяем формат токена
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 {
+			log.Warn("Invalid Authorization header format", zap.String("header", authHeader))
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization header format"})
+			c.Abort()
 			return
 		}
 
-		authType := authParts[0]
-		authData := authParts[1]
+		authType := parts[0]
+		tokenString := parts[1]
 
+		log.Debug("Authorization header parsed",
+			zap.String("type", authType),
+			zap.Int("token_length", len(tokenString)))
+
+		var user *models.User
+		var err error
+
+		// В зависимости от типа токена (JWT или TMA)
 		switch authType {
-		case "tma":
-			// Проверяем инициализационные данные по официальному алгоритму TMA
-			if err := initdata.Validate(authData, m.botToken, time.Hour); err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-				return
-			}
-
-			// Получаем или создаем пользователя из данных Telegram
-			token, err := m.authService.InitAuth(c, authData)
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-				return
-			}
-
-			// Парсим данные
-			tmaData, err := initdata.Parse(authData)
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-
-			// Сохраняем данные в контексте
-			c.Set("user", token)
-			c.Set("user_id", uint64(tmaData.User.ID))
-
 		case "Bearer":
-			// Прежний метод JWT-авторизации
-			user, err := m.authService.ValidateToken(c, authData)
+			// JWT токен
+			log.Debug("Processing Bearer token")
+			user, err = m.authService.VerifyAuth(c, tokenString)
 			if err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				log.Error("Invalid Bearer token", zap.Error(err))
+				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				c.Abort()
+				return
+			}
+		case "tma":
+			// Telegram Mini App token
+			log.Debug("Processing TMA token", zap.Int("init_data_length", len(tokenString)))
+
+			// Валидируем данные Telegram Mini App
+			if err := initdata.Validate(tokenString, m.botToken, time.Hour); err != nil {
+				log.Error("Invalid Telegram Mini App data", zap.Error(err))
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid telegram mini app data"})
+				c.Abort()
 				return
 			}
 
-			// Сохраняем пользователя в контексте
-			c.Set("user", user)
-			c.Set("user_id", user.TelegramID)
+			// Генерируем JWT токен для пользователя
+			log.Debug("Initializing auth from Telegram Mini App data")
+			jwtToken, err := m.authService.InitAuth(c, tokenString)
+			if err != nil {
+				log.Error("Failed to initialize auth from Telegram Mini App", zap.Error(err))
+				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				c.Abort()
+				return
+			}
 
+			// Верифицируем только что созданный JWT токен
+			log.Debug("Verifying generated JWT token")
+			user, err = m.authService.VerifyAuth(c, jwtToken)
+			if err != nil {
+				log.Error("Failed to verify auth token", zap.Error(err))
+				c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				c.Abort()
+				return
+			}
 		default:
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unsupported authorization type"})
+			log.Warn("Unsupported authentication type", zap.String("type", authType))
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unsupported authentication type"})
+			c.Abort()
 			return
 		}
 
+		// Устанавливаем пользователя в контекст
+		log.Info("Authentication successful",
+			zap.Uint64("telegram_id", user.TelegramID),
+			zap.String("username", user.Username))
+		c.Set("user", user)
 		c.Next()
 	}
 }

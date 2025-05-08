@@ -29,6 +29,8 @@ type GameRepository interface {
 	CountByUser(ctx context.Context, userID uint64) (int, error)
 	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error)
 	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateRewardPool(ctx context.Context, id uuid.UUID, rewardPoolTon, rewardPoolUsdt float64) error
 }
 
 // UserRepository определяет методы для работы с пользователями

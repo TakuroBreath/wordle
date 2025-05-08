@@ -111,7 +111,7 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Warn("User not found", zap.Uint64("telegram_id", telegramID))
-			return nil, fmt.Errorf("user not found")
+			return nil, models.ErrUserNotFound
 		}
 		log.Error("Failed to get user", zap.Error(err))
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -229,7 +229,7 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Warn("User not found", zap.String("username", username))
-			return nil, fmt.Errorf("user not found")
+			return nil, models.ErrUserNotFound
 		}
 		log.Error("Failed to get user", zap.Error(err))
 		return nil, fmt.Errorf("failed to get user: %w", err)
