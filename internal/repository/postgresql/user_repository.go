@@ -284,3 +284,17 @@ func (r *UserRepository) ValidateBalance(ctx context.Context, userID uint64, req
 
 	return hasEnough, nil
 }
+
+// UpdateTonBalance обновляет баланс TON пользователя
+func (r *UserRepository) UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error {
+    query := `UPDATE users SET balance_ton = balance_ton + $1, updated_at = NOW() WHERE telegram_id = $2`
+    _, err := r.db.ExecContext(ctx, query, amount, telegramID)
+    return err
+}
+
+// UpdateUsdtBalance обновляет баланс USDT пользователя
+func (r *UserRepository) UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error {
+    query := `UPDATE users SET balance_usdt = balance_usdt + $1, updated_at = NOW() WHERE telegram_id = $2`
+    _, err := r.db.ExecContext(ctx, query, amount, telegramID)
+    return err
+}

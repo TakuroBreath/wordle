@@ -3,295 +3,307 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/models"
-	"github.com/google/uuid"
+	// "github.com/google/uuid" // uuid не используется для User ID
 )
 
-// UserService представляет собой реализацию сервиса для работы с пользователями
-type UserService struct {
-	repo models.UserRepository
+// UserServiceImpl представляет собой реализацию сервиса для работы с пользователями
+type UserServiceImpl struct {
+	repo               models.UserRepository
+	transactionService models.TransactionService
 }
 
-// NewUserService создает новый экземпляр UserService
-func NewUserService(repo models.UserRepository) *UserService {
-	return &UserService{
-		repo: repo,
+// NewUserServiceImpl создает новый экземпляр UserServiceImpl
+func NewUserServiceImpl(repo models.UserRepository, ts models.TransactionService) models.UserService {
+	return &UserServiceImpl{
+		repo:               repo,
+		transactionService: ts,
 	}
 }
 
-// Create создает нового пользователя
-func (s *UserService) Create(ctx context.Context, user *models.User) error {
-	// Проверка валидности данных
-	if user.TelegramID <= 0 {
-		return errors.New("telegram ID must be greater than 0")
+// CreateUser создает нового пользователя
+func (s *UserServiceImpl) CreateUser(ctx context.Context, user *models.User) error {
+	if user == nil {
+		return errors.New("user cannot be nil")
+	}
+	if user.TelegramID == 0 {
+		return errors.New("telegram ID must be valid")
 	}
 
-	// Проверка, существует ли пользователь с таким Telegram ID
 	existingUser, err := s.repo.GetByTelegramID(ctx, user.TelegramID)
-	if err == nil && existingUser != nil {
+	if err != nil && !errors.Is(err, models.ErrUserNotFound) {
+		return fmt.Errorf("error checking for existing user: %w", err)
+	}
+	if existingUser != nil {
 		return errors.New("user with this Telegram ID already exists")
 	}
 
-	// Инициализация счетчиков побед и поражений
 	user.Wins = 0
 	user.Losses = 0
+	user.BalanceTon = 0.0
+	user.BalanceUsdt = 0.0
+	user.CreatedAt = time.Now()
+	user.UpdatedAt = time.Now()
 
-	// Инициализация баланса
-	user.Balance = 0
-
-	// Сохранение пользователя в базе данных
 	return s.repo.Create(ctx, user)
 }
 
-// GetByID получает пользователя по ID
-func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
-	return s.repo.GetByID(ctx, id)
-}
-
-// GetByTelegramID получает пользователя по Telegram ID
-func (s *UserService) GetByTelegramID(ctx context.Context, telegramID int64) (*models.User, error) {
+// GetUser получает пользователя по Telegram ID
+func (s *UserServiceImpl) GetUser(ctx context.Context, telegramID uint64) (*models.User, error) {
+	if telegramID == 0 {
+		return nil, errors.New("telegram ID must be valid")
+	}
 	return s.repo.GetByTelegramID(ctx, telegramID)
 }
 
-// Update обновляет данные пользователя
-func (s *UserService) Update(ctx context.Context, user *models.User) error {
-	// Проверка существования пользователя
-	existingUser, err := s.repo.GetByID(ctx, user.TelegramID)
+// UpdateUser обновляет данные пользователя
+func (s *UserServiceImpl) UpdateUser(ctx context.Context, user *models.User) error {
+	if user == nil {
+		return errors.New("user cannot be nil")
+	}
+	if user.TelegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+
+	// Получаем существующего пользователя, чтобы убедиться, что он есть
+	// и чтобы не обновить случайно несуществующего или не изменить критичные поля
+	existingUser, err := s.repo.GetByTelegramID(ctx, user.TelegramID)
 	if err != nil {
-		return errors.New("user not found")
+		if errors.Is(err, models.ErrUserNotFound) {
+			return errors.New("user not found")
+		}
+		return fmt.Errorf("error fetching user for update: %w", err)
 	}
 
-	// Проверка валидности данных
-	if user.TelegramID <= 0 {
-		return errors.New("telegram ID must be greater than 0")
+	// Обновляем только разрешенные поля. Не позволяем менять TelegramID, балансы напрямую этим методом.
+	existingUser.Username = user.Username
+	existingUser.FirstName = user.FirstName
+	existingUser.LastName = user.LastName
+	existingUser.Wallet = user.Wallet // Разрешаем обновление кошелька
+	existingUser.UpdatedAt = time.Now()
+
+	return s.repo.Update(ctx, existingUser)
+}
+
+// DeleteUser удаляет пользователя по Telegram ID
+func (s *UserServiceImpl) DeleteUser(ctx context.Context, telegramID uint64) error {
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	// Сначала проверим, существует ли пользователь
+	_, err := s.repo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			return errors.New("user not found")
+		}
+		return fmt.Errorf("error fetching user for delete: %w", err)
+	}
+	return s.repo.Delete(ctx, telegramID)
+}
+
+// GetUserByUsername получает пользователя по Username
+func (s *UserServiceImpl) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
+	if username == "" {
+		return nil, errors.New("username cannot be empty")
+	}
+	return s.repo.GetByUsername(ctx, username)
+}
+
+// UpdateTonBalance обновляет баланс пользователя в TON.
+// amount может быть положительным (пополнение) или отрицательным (списание).
+func (s *UserServiceImpl) UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error {
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	// Можно добавить проверку, что amount не приведет к отрицательному балансу, если это бизнес-требование
+	// или делегировать это репозиторию/базе данных
+	return s.repo.UpdateTonBalance(ctx, telegramID, amount)
+}
+
+// UpdateUsdtBalance обновляет баланс пользователя в USDT.
+// amount может быть положительным (пополнение) или отрицательным (списание).
+func (s *UserServiceImpl) UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error {
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	return s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
+}
+
+// GetTopUsers получает список топ-пользователей (например, по количеству побед)
+func (s *UserServiceImpl) GetTopUsers(ctx context.Context, limit int) ([]*models.User, error) {
+	if limit <= 0 {
+		limit = 10 // Значение по умолчанию
+	}
+	return s.repo.GetTopUsers(ctx, limit)
+}
+
+// GetUserStats получает статистику пользователя
+func (s *UserServiceImpl) GetUserStats(ctx context.Context, telegramID uint64) (map[string]interface{}, error) {
+	if telegramID == 0 {
+		return nil, errors.New("telegram ID must be valid")
+	}
+	// Этот метод может быть реализован либо прямым вызовом s.repo.GetUserStats,
+	// либо сбором данных из user и, возможно, других репозиториев (например, historyRepo)
+	user, err := s.repo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		return nil, err
+	}
+	stats := map[string]interface{}{
+		"telegram_id":  user.TelegramID,
+		"username":     user.Username,
+		"first_name":   user.FirstName,
+		"last_name":    user.LastName,
+		"wallet":       user.Wallet,
+		"wins":         user.Wins,
+		"losses":       user.Losses,
+		"balance_ton":  user.BalanceTon,
+		"balance_usdt": user.BalanceUsdt,
+		// Можно добавить win_rate, если это считается на уровне сервиса
+	}
+	if user.Wins+user.Losses > 0 {
+		stats["win_rate"] = float64(user.Wins) / float64(user.Wins+user.Losses)
+	} else {
+		stats["win_rate"] = 0.0
+	}
+	return stats, nil
+}
+
+// ValidateBalance проверяет, достаточен ли баланс пользователя для указанной суммы
+func (s *UserServiceImpl) ValidateBalance(ctx context.Context, telegramID uint64, requiredAmount float64, currency string) (bool, error) {
+	if telegramID == 0 {
+		return false, errors.New("telegram ID must be valid")
+	}
+	if requiredAmount < 0 {
+		// Снятие отрицательной суммы не имеет смысла для проверки баланса
+		return false, errors.New("required amount cannot be negative")
+	}
+	if requiredAmount == 0 {
+		return true, nil // Для нулевой суммы баланс всегда достаточен
 	}
 
-	// Проверка, не пытается ли пользователь изменить свой Telegram ID на уже существующий
-	if user.TelegramID != existingUser.TelegramID {
-		existingByTelegram, err := s.repo.GetByTelegramID(ctx, user.TelegramID)
-		if err == nil && existingByTelegram != nil && existingByTelegram.ID != user.ID {
-			return errors.New("user with this Telegram ID already exists")
+	user, err := s.repo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		return false, err
+	}
+
+	switch currency {
+	case models.CurrencyTON:
+		return user.BalanceTon >= requiredAmount, nil
+	case models.CurrencyUSDT:
+		return user.BalanceUsdt >= requiredAmount, nil
+	default:
+		return false, fmt.Errorf("unknown currency: %s", currency)
+	}
+}
+
+// RequestWithdraw запрашивает вывод средств с баланса пользователя
+func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64, amount float64, currency string) error {
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	if amount <= 0 {
+		return errors.New("withdraw amount must be positive")
+	}
+
+	// Проверяем поддерживаемую валюту
+	if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
+		return fmt.Errorf("unsupported currency: %s", currency)
+	}
+
+	// Проверяем, достаточно ли средств на балансе
+	hasBalance, err := s.ValidateBalance(ctx, telegramID, amount, currency)
+	if err != nil {
+		return fmt.Errorf("failed to validate balance: %w", err)
+	}
+	if !hasBalance {
+		return fmt.Errorf("insufficient %s balance", currency)
+	}
+
+	// Получаем пользователя для проверки адреса кошелька
+	user, err := s.repo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.Wallet == "" {
+		return errors.New("wallet address not set")
+	}
+
+	// Создаем транзакцию вывода средств через transactionService
+	tx := &models.Transaction{
+		UserID:      telegramID,
+		Type:        models.TransactionTypeWithdraw,
+		Amount:      amount,
+		Currency:    currency,
+		Status:      models.TransactionStatusPending,
+		Description: fmt.Sprintf("Withdraw %f %s to wallet %s", amount, currency, user.Wallet),
+	}
+
+	if err := s.transactionService.CreateTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("failed to create withdraw transaction: %w", err)
+	}
+
+	// Уменьшаем баланс пользователя (блокируем средства)
+	if currency == models.CurrencyTON {
+		if err := s.UpdateTonBalance(ctx, telegramID, -amount); err != nil {
+			// Если не удалось обновить баланс, отменяем транзакцию
+			if txErr := s.transactionService.FailTransaction(ctx, tx.ID, "Failed to update user balance"); txErr != nil {
+				// Логируем ошибку, но возвращаем первоначальную
+				fmt.Printf("ERROR: Failed to mark transaction %s as failed: %v\n", tx.ID, txErr)
+			}
+			return fmt.Errorf("failed to update TON balance: %w", err)
+		}
+	} else {
+		if err := s.UpdateUsdtBalance(ctx, telegramID, -amount); err != nil {
+			// Если не удалось обновить баланс, отменяем транзакцию
+			if txErr := s.transactionService.FailTransaction(ctx, tx.ID, "Failed to update user balance"); txErr != nil {
+				fmt.Printf("ERROR: Failed to mark transaction %s as failed: %v\n", tx.ID, txErr)
+			}
+			return fmt.Errorf("failed to update USDT balance: %w", err)
 		}
 	}
 
-	// Сохранение пользователя в базе данных
-	return s.repo.Update(ctx, user)
+	return nil
 }
 
-// Delete удаляет пользователя
-func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
-	// Проверка существования пользователя
-	_, err := s.repo.GetByID(ctx, id)
+// GetWithdrawHistory получает историю выводов средств пользователя
+func (s *UserServiceImpl) GetWithdrawHistory(ctx context.Context, telegramID uint64, limit, offset int) ([]*models.Transaction, error) {
+	if telegramID == 0 {
+		return nil, errors.New("telegram ID must be valid")
+	}
+
+	if limit <= 0 {
+		limit = 10 // Значение по умолчанию
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Получаем все транзакции пользователя
+	transactions, err := s.transactionService.GetUserTransactions(ctx, telegramID, 1000, 0)
 	if err != nil {
-		return errors.New("user not found")
+		return nil, fmt.Errorf("failed to get user transactions: %w", err)
 	}
 
-	// Удаление пользователя
-	return s.repo.Delete(ctx, id)
-}
-
-// TransactionService представляет собой реализацию сервиса для работы с транзакциями
-type TransactionService struct {
-	repo     models.TransactionRepository
-	userRepo models.UserRepository
-}
-
-// NewTransactionService создает новый экземпляр TransactionService
-func NewTransactionService(repo models.TransactionRepository, userRepo models.UserRepository) *TransactionService {
-	return &TransactionService{
-		repo:     repo,
-		userRepo: userRepo,
-	}
-}
-
-// Create создает новую транзакцию
-func (s *TransactionService) Create(ctx context.Context, tx *models.Transaction) error {
-	// Проверка валидности данных
-	if tx.UserID == uuid.Nil {
-		return errors.New("user ID cannot be empty")
+	// Фильтруем по типу "withdraw"
+	var withdrawals []*models.Transaction
+	for _, tx := range transactions {
+		if tx.Type == models.TransactionTypeWithdraw {
+			withdrawals = append(withdrawals, tx)
+		}
 	}
 
-	if tx.Amount <= 0 {
-		return errors.New("amount must be greater than 0")
+	// Применяем пагинацию
+	if offset >= len(withdrawals) {
+		return []*models.Transaction{}, nil
+	}
+	end := offset + limit
+	if end > len(withdrawals) {
+		end = len(withdrawals)
 	}
 
-	if tx.Currency != "TON" && tx.Currency != "USDT" {
-		return errors.New("currency must be TON or USDT")
-	}
-
-	if tx.Type != "deposit" && tx.Type != "withdraw" && tx.Type != "win" && tx.Type != "loss" {
-		return errors.New("invalid transaction type")
-	}
-
-	if tx.Status != "pending" && tx.Status != "completed" && tx.Status != "failed" {
-		return errors.New("invalid transaction status")
-	}
-
-	// Генерация ID, если он не был установлен
-	if tx.ID == uuid.Nil {
-		tx.ID = uuid.New()
-	}
-
-	// Установка текущего времени, если оно не было установлено
-	if tx.CreatedAt.IsZero() {
-		tx.CreatedAt = time.Now()
-	}
-
-	// Сохранение транзакции в базе данных
-	return s.repo.Create(ctx, tx)
-}
-
-// GetByID получает транзакцию по ID
-func (s *TransactionService) GetByID(ctx context.Context, id uuid.UUID) (*models.Transaction, error) {
-	return s.repo.GetByID(ctx, id)
-}
-
-// GetByUserID получает транзакции пользователя
-func (s *TransactionService) GetByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*models.Transaction, error) {
-	return s.repo.GetByUserID(ctx, userID, limit, offset)
-}
-
-// GetByStatus получает транзакции по статусу
-func (s *TransactionService) GetByStatus(ctx context.Context, status string, limit, offset int) ([]*models.Transaction, error) {
-	return s.repo.GetByStatus(ctx, status, limit, offset)
-}
-
-// Update обновляет данные транзакции
-func (s *TransactionService) Update(ctx context.Context, tx *models.Transaction) error {
-	// Проверка существования транзакции
-	existingTx, err := s.repo.GetByID(ctx, tx.ID)
-	if err != nil {
-		return errors.New("transaction not found")
-	}
-
-	// Проверка, что транзакция не завершена
-	if existingTx.Status == "completed" || existingTx.Status == "failed" {
-		return errors.New("cannot update completed or failed transaction")
-	}
-
-	// Проверка валидности данных
-	if tx.Status != "pending" && tx.Status != "completed" && tx.Status != "failed" {
-		return errors.New("invalid transaction status")
-	}
-
-	// Если транзакция завершена, устанавливаем время завершения
-	if tx.Status == "completed" || tx.Status == "failed" {
-		now := time.Now()
-		tx.CompletedAt = &now
-	}
-
-	// Сохранение транзакции в базе данных
-	return s.repo.Update(ctx, tx)
-}
-
-// ProcessDeposit обрабатывает депозит средств
-func (s *TransactionService) ProcessDeposit(ctx context.Context, userID uuid.UUID, amount float64, currency string, txHash string) error {
-	// Проверка валидности данных
-	if userID == uuid.Nil {
-		return errors.New("user ID cannot be empty")
-	}
-
-	if amount <= 0 {
-		return errors.New("amount must be greater than 0")
-	}
-
-	if currency != "TON" && currency != "USDT" {
-		return errors.New("currency must be TON or USDT")
-	}
-
-	if txHash == "" {
-		return errors.New("transaction hash cannot be empty")
-	}
-
-	// Проверка существования пользователя
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return errors.New("user not found")
-	}
-
-	// Создание транзакции
-	tx := &models.Transaction{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Amount:    amount,
-		Currency:  currency,
-		Type:      "deposit",
-		Status:    "pending",
-		TxHash:    txHash,
-		CreatedAt: time.Now(),
-	}
-
-	// Сохранение транзакции
-	err = s.repo.Create(ctx, tx)
-	if err != nil {
-		return err
-	}
-
-	// Обновление баланса пользователя
-	user.Balance += amount
-	err = s.userRepo.Update(ctx, user)
-	if err != nil {
-		return err
-	}
-
-	// Обновление статуса транзакции
-	tx.Status = "completed"
-	now := time.Now()
-	tx.CompletedAt = &now
-	return s.repo.Update(ctx, tx)
-}
-
-// ProcessWithdraw обрабатывает вывод средств
-func (s *TransactionService) ProcessWithdraw(ctx context.Context, userID uuid.UUID, amount float64, currency string) (*models.Transaction, error) {
-	// Проверка валидности данных
-	if userID == uuid.Nil {
-		return nil, errors.New("user ID cannot be empty")
-	}
-
-	if amount <= 0 {
-		return nil, errors.New("amount must be greater than 0")
-	}
-
-	if currency != "TON" && currency != "USDT" {
-		return nil, errors.New("currency must be TON or USDT")
-	}
-
-	// Проверка существования пользователя
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return nil, errors.New("user not found")
-	}
-
-	// Проверка достаточности средств
-	if user.Balance < amount {
-		return nil, errors.New("insufficient funds")
-	}
-
-	// Создание транзакции
-	tx := &models.Transaction{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Amount:    amount,
-		Currency:  currency,
-		Type:      "withdraw",
-		Status:    "pending",
-		CreatedAt: time.Now(),
-	}
-
-	// Сохранение транзакции
-	err = s.repo.Create(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Обновление баланса пользователя
-	user.Balance -= amount
-	err = s.userRepo.Update(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return withdrawals[offset:end], nil
 }

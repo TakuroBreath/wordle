@@ -8,9 +8,9 @@
 
 Технологии
 	•	Язык: Go 1.24+
-	•	Хранилище: PostgreSQL
+	•	Хранилище: PostgreSQL, Redis
 	•	Blockchain: TON (через SDK / gRPC / REST)
-	•	API: REST (JSON over HTTPS)
+	•	API: REST (JSON over HTTPS), Gin
 	•	Очередь: Redis / BullMQ (для обработки событий транзакций)
 	•	Аутентификация: через Telegram Mini App авторизацию
 
@@ -19,11 +19,13 @@
 Основные сущности
 
 1. User (пользователь)
-	•	telegram_id: string (уникальный)
+	•	telegram_id: uint64 (уникальный)
 	•	username: string
 	•	first_name: string
 	•	last_name: string
-	•	balance: decimal (в TON/USDT)
+	•	wallet: string
+	•	balance_ton: float64
+	•	balance_usdt: float64
 	•	wins: int
 	•	losses: int
 	•	created_at: datetime
@@ -31,39 +33,45 @@
 
 2. Game (игра)
 	•	id: UUID
-	•	creator_id: telegram_id (User)
-	•	word: string (хэшируется/шифруется)
+	•	creator_id: uint64 (Telegram ID создателя)
+	•	word: string
+	•	length: int
+	•	difficulty: string
+	•	max_tries: int
 	•	title: string
 	•	description: text
-	•	min_bet: decimal
-	•	max_bet: decimal (рассчитывается)
-	•	reward_multiplier: float64 (1.5 - 10)
-	•	expires_at: datetime
-	•	status: enum: [active, inactive]
-	•	max_reward: decimal (max_bet * multiplier)
+	•	min_bet: float64
+	•	max_bet: float64
+	•	reward_multiplier: float64
+	•	currency: string ("TON" или "USDT")
+	•	reward_pool_ton: float64
+	•	reward_pool_usdt: float64
+	•	status: string ("active" или "inactive")
 	•	created_at: datetime
 	•	updated_at: datetime
 
 3. Lobby (игровая сессия)
 	•	id: UUID
 	•	game_id: UUID
-	•	player_id: telegram_id
-	•	attempts_max: int
-	•	attempts_used: int
-	•	attempts: []Attempt
-	•	potential_reward: decimal
-	•	status: enum: [active, success, failed]
+	•	user_id: uint64 (Telegram ID игрока)
+	•	max_tries: int
+	•	tries_used: int
+	•	bet_amount: float64
+	•	potential_reward: float64
+	•	status: string ("active" или "inactive")
 	•	created_at: datetime
 	•	updated_at: datetime
 	•	expires_at: datetime
+	•	attempts: []Attempt
 
 4. Attempt (попытка)
 	•	id: UUID
 	•	game_id: UUID
-	•	lobby_id: UUID
-	•	word_guessed: string
-	•	result: []int (0/1/2 как в Wordle)
+	•	user_id: uint64 (Telegram ID игрока)
+	•	word: string
+	•	result: []int (0 - нет, 1 - есть в слове, 2 - на месте)
 	•	created_at: datetime
+	•	updated_at: datetime
 
 ⸻
 
@@ -74,10 +82,10 @@
 	•	Баланс = 0, побед и поражений нет.
 
 Создание игры
-	•	Игрок задаёт слово, макс. количество попыток, множитель награды, минимальную ставку.
-	•	Высчитывается max_bet = min_bet * 2, max_reward = max_bet * multiplier.
-	•	Создатель переводит депозит = max_reward.
-	•	После успешной транзакции игра становится активной.
+	•	Игрок задаёт слово, макс. количество попыток, множитель награды, минимальную и максимальную ставки.
+	•	Высчитывается max_reward = max_bet * multiplier.
+	•	Создатель переводит депозит(reward pool) = max_reward (На фронтенде)
+	•	После успешной транзакции игра становится активной и доступной другим игрокам.
 
 Присоединение к игре
 	•	Игрок указывает свою ставку (>= min_bet, <= max_bet).
@@ -91,39 +99,54 @@
 	•	1 — буква есть, не на месте
 	•	2 — буква есть и на месте
 	•	Попытка сохраняется.
-	•	Если слово угадано — статус лобби = success, начисляется выигрыш.
-	•	Если попытки исчерпаны — статус = failed.
+	•	Если слово угадано — статус лобби = success, начисляется выигрыш на баланс игрока.
+	•	Если попытки исчерпаны или время вышло — статус = failed.
+	•	Если игра проиграна, ставка начисляется в reward pool игры.
 
 Выплата наград
 	•	Победа: сумма начисляется игроку, вычитается у создателя.
 	•	Проигрыш: остаётся у создателя.
 	•	Комиссия: % остаётся в сервисе (константа, например 5%).
+	•	Создатель игры может удалить игру, ее reward pool переходит к нему на баланс.
+	•	Игрок может запросить выплату наград со своего баланса. Его баланс проверяется.
 
 ⸻
 
-API (примерные эндпоинты)
+API (эндпоинты)
 
 Auth
 	•	POST /auth/telegram — регистрация по данным Telegram Mini App
+	•	GET /auth/verify — проверка подписи Telegram Mini App
 
 User
-	•	GET /me
-	•	GET /user/{id}
+	•	GET /me — получение данных текущего пользователя
+	•	GET /user/{id} — получение данных пользователя по ID
+	•	GET /user/balance — получение баланса пользователя
+	•	POST /user/withdraw — запрос на вывод средств
+	•	GET /user/withdraw/history — история выводов
 
 Game
-	•	POST /game — создание игры
-	•	GET /game/{id}
-	•	GET /games/active
+	•	POST /game — создание новой игры
+	•	GET /game/{id} — получение информации об игре
+	•	GET /games/active — список активных игр
+	•	GET /games/my — список игр, созданных пользователем
+	•	DELETE /game/{id} — удаление игры (только для создателя)
+	•	POST /game/{id}/reward-pool — пополнение reward pool игры
 
 Lobby
 	•	POST /lobby/join — присоединение к игре
-	•	GET /lobby/{id}
-	•	POST /lobby/{id}/attempt — новая попытка
+	•	GET /lobby/{id} — получение информации о лобби
+	•	GET /lobby/active — получение активного лобби пользователя
+	•	POST /lobby/{id}/attempt — отправка попытки угадать слово
+	•	GET /lobby/{id}/attempts — получение истории попыток
 
 Admin / Service
-	•	GET /stats
-	•	GET /rewards/pending
-	•	POST /rewards/withdraw
+	•	GET /stats — общая статистика
+	•	GET /stats/games — статистика по играм
+	•	GET /stats/users — статистика по пользователям
+	•	GET /rewards/pending — список ожидающих выплат
+	•	POST /rewards/process — обработка выплаты
+	•	GET /rewards/history — история выплат
 
 ⸻
 
@@ -140,5 +163,5 @@ Admin / Service
 	•	Турниры
 	•	История игр
 	•	Реплей попыток
-	•	Механика “подсказок за комиссию”
+	•	Механика "подсказок за комиссию"
 

@@ -1,117 +1,89 @@
 package routes
 
 import (
-	"sync"
-	"time"
-
 	"github.com/TakuroBreath/wordle/internal/api/handlers"
-	"github.com/TakuroBreath/wordle/internal/service"
+	"github.com/TakuroBreath/wordle/internal/api/middleware"
+	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
-// SetupRouter настраивает маршрутизацию для API
-func SetupRouter(handler *handlers.Handler, authService service.AuthService) *gin.Engine {
-	router := gin.Default()
+// SetupRouter настраивает маршруты API и middleware
+func SetupRouter(
+	authService models.AuthService,
+	userService models.UserService,
+	gameService models.GameService,
+	lobbyService models.LobbyService,
+	transactionService models.TransactionService,
+) *gin.Engine {
+	router := gin.New()
 
-	// Настройка CORS
-	router.Use(corsMiddleware())
+	// Глобальные middleware
+	router.Use(gin.Recovery())
+	router.Use(middleware.Logger())
+	router.Use(middleware.CORS())
 
-	// Настройка middleware для ограничения запросов
-	router.Use(rateLimitMiddleware())
+	// Инициализация обработчиков
+	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(userService, transactionService)
+	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService)
+	lobbyHandler := handlers.NewLobbyHandler(lobbyService, gameService, userService)
+	transactionHandler := handlers.NewTransactionHandler(transactionService, userService)
 
-	// Регистрация обычных маршрутов API
-	handler.RegisterRoutes(router)
+	// Middleware для аутентификации
+	authMiddleware := middleware.NewAuthMiddleware(authService)
 
-	// Регистрация защищенных маршрутов API
-	RegisterProtectedRoutes(router, handler, authService)
+	// Публичные маршруты
+	public := router.Group("/api/v1")
+	{
+		// Аутентификация
+		public.POST("/auth/telegram", authHandler.TelegramAuth)
+		public.POST("/auth/verify", authHandler.VerifyAuth)
+		public.POST("/auth/logout", authHandler.Logout)
+
+		// Получение списка активных игр (не требует авторизации)
+		public.GET("/games", gameHandler.GetActiveGames)
+		public.GET("/games/:id", gameHandler.GetGame)
+		public.GET("/games/search", gameHandler.SearchGames)
+	}
+
+	// Защищенные маршруты (требуют аутентификации)
+	private := router.Group("/api/v1")
+	private.Use(authMiddleware.RequireAuth())
+	{
+		// Пользователи
+		private.GET("/users/me", userHandler.GetCurrentUser)
+		private.GET("/users/balance", userHandler.GetUserBalance)
+		private.GET("/users/:id", userHandler.GetUserByID)
+		private.PUT("/users/me", userHandler.UpdateUser)
+		private.POST("/users/withdraw", userHandler.RequestWithdraw)
+		private.GET("/users/withdrawals", userHandler.GetWithdrawHistory)
+		private.POST("/users/wallet", userHandler.GenerateWalletAddress)
+
+		// Игры
+		private.POST("/games", gameHandler.CreateGame)
+		private.GET("/games/my", gameHandler.GetUserGames)
+		private.DELETE("/games/:id", gameHandler.DeleteGame)
+		private.POST("/games/:id/reward", gameHandler.AddToRewardPool)
+		private.POST("/games/:id/activate", gameHandler.ActivateGame)
+		private.POST("/games/:id/deactivate", gameHandler.DeactivateGame)
+
+		// Лобби
+		private.POST("/lobbies", lobbyHandler.JoinGame)
+		private.GET("/lobbies/:id", lobbyHandler.GetLobby)
+		private.GET("/lobbies/active", lobbyHandler.GetActiveLobby)
+		private.GET("/lobbies", lobbyHandler.GetUserLobbies)
+		private.POST("/lobbies/:id/attempt", lobbyHandler.MakeAttempt)
+		private.GET("/lobbies/:id/attempts", lobbyHandler.GetAttempts)
+		private.POST("/lobbies/:id/extend", lobbyHandler.ExtendLobbyTime)
+
+		// Транзакции
+		private.GET("/transactions", transactionHandler.GetUserTransactions)
+		private.GET("/transactions/:id", transactionHandler.GetTransaction)
+		private.GET("/transactions/by-type", transactionHandler.GetTransactionsByType)
+		private.GET("/transactions/stats", transactionHandler.GetTransactionStats)
+		private.POST("/transactions/deposit", transactionHandler.CreateDepositTransaction)
+		private.POST("/transactions/verify", transactionHandler.VerifyDeposit)
+	}
 
 	return router
-}
-
-// RegisterProtectedRoutes регистрирует защищенные маршруты, требующие аутентификации
-func RegisterProtectedRoutes(router *gin.Engine, handler *handlers.Handler, authService service.AuthService) {
-	// Группа защищенных маршрутов
-	protected := router.Group("/api/protected")
-	protected.Use(authMiddleware(authService))
-
-	// Здесь можно добавить защищенные маршруты, например:
-	// protected.GET("/user/profile", handler.GetUserProfile)
-	// protected.POST("/user/settings", handler.UpdateUserSettings)
-}
-
-// corsMiddleware настраивает CORS для API
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// rateLimitMiddleware настраивает ограничение запросов для API
-func rateLimitMiddleware() gin.HandlerFunc {
-	// Создаем простую карту для отслеживания запросов по IP
-	visits := make(map[string][]time.Time)
-	var mu sync.Mutex
-
-	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		mu.Lock()
-
-		// Очищаем устаревшие записи (старше 1 минуты)
-		now := time.Now()
-		var recent []time.Time
-		for _, t := range visits[ip] {
-			if now.Sub(t) < time.Minute {
-				recent = append(recent, t)
-			}
-		}
-		visits[ip] = recent
-
-		// Проверяем количество запросов (не более 60 запросов в минуту)
-		if len(visits[ip]) >= 60 {
-			mu.Unlock()
-			c.JSON(429, gin.H{"error": "Too many requests"})
-			c.Abort()
-			return
-		}
-
-		// Добавляем текущее время в список запросов
-		visits[ip] = append(visits[ip], now)
-		mu.Unlock()
-
-		c.Next()
-	}
-}
-
-// authMiddleware настраивает проверку аутентификации для API
-func authMiddleware(authService service.AuthService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token := c.GetHeader("Authorization")
-		if token == "" {
-			c.JSON(401, gin.H{"error": "Unauthorized"})
-			c.Abort()
-			return
-		}
-
-		// Проверка токена
-		user, err := authService.ValidateToken(c, token)
-		if err != nil {
-			c.JSON(401, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-
-		// Сохранение пользователя в контексте
-		c.Set("user", user)
-		c.Next()
-	}
 }

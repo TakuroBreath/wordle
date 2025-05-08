@@ -1,0 +1,57 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Модели данных
+
+## User
+Модель пользователя ([user.go](mdc:internal/models/user.go)):
+- `telegram_id`: uint64 - уникальный идентификатор в Telegram
+- `username`: string - имя пользователя
+- `first_name`: string - имя
+- `last_name`: string - фамилия
+- `wallet`: string - адрес кошелька
+- `balance_ton`: float64 - баланс в TON
+- `balance_usdt`: float64 - баланс в USDT
+- `wins`: int - количество побед
+- `losses`: int - количество поражений
+
+## Game
+Модель игры ([game.go](mdc:internal/models/game.go)):
+- `id`: UUID - уникальный идентификатор игры
+- `creator_id`: uint64 - Telegram ID создателя
+- `word`: string - загаданное слово
+- `length`: int - длина слова
+- `difficulty`: string - сложность
+- `max_tries`: int - максимальное количество попыток
+- `title`: string - название игры
+- `description`: string - описание
+- `min_bet`: float64 - минимальная ставка
+- `max_bet`: float64 - максимальная ставка
+- `reward_multiplier`: float64 - множитель награды
+- `currency`: string - валюта ("TON" или "USDT")
+- `reward_pool_ton`: float64 - пул наград в TON
+- `reward_pool_usdt`: float64 - пул наград в USDT
+- `status`: string - статус ("active" или "inactive")
+
+## Lobby
+Модель игрового лобби ([lobby.go](mdc:internal/models/lobby.go)):
+- `id`: UUID - уникальный идентификатор лобби
+- `game_id`: UUID - ID игры
+- `user_id`: uint64 - Telegram ID игрока
+- `max_tries`: int - максимальное количество попыток
+- `tries_used`: int - использованные попытки
+- `bet_amount`: float64 - сумма ставки
+- `potential_reward`: float64 - потенциальный выигрыш
+- `status`: string - статус ("active" или "inactive")
+- `expires_at`: time.Time - время истечения
+- `attempts`: []Attempt - история попыток
+
+## Attempt
+Модель попытки ([attempt.go](mdc:internal/models/attempt.go)):
+- `id`: UUID - уникальный идентификатор попытки
+- `game_id`: UUID - ID игры
+- `user_id`: uint64 - Telegram ID игрока
+- `word`: string - угаданное слово
+- `result`: []int - результат (0 - нет, 1 - есть в слове, 2 - на месте)

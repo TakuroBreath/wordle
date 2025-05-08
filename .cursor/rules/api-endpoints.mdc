@@ -1,0 +1,40 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# API Эндпоинты
+
+## Auth
+- `POST /auth/telegram` - регистрация по данным Telegram Mini App
+- `GET /auth/verify` - проверка подписи Telegram Mini App
+
+## User
+- `GET /me` - получение данных текущего пользователя
+- `GET /user/{id}` - получение данных пользователя по ID
+- `GET /user/balance` - получение баланса пользователя
+- `POST /user/withdraw` - запрос на вывод средств
+- `GET /user/withdraw/history` - история выводов
+
+## Game
+- `POST /game` - создание новой игры
+- `GET /game/{id}` - получение информации об игре
+- `GET /games/active` - список активных игр
+- `GET /games/my` - список игр, созданных пользователем
+- `DELETE /game/{id}` - удаление игры (только для создателя)
+- `POST /game/{id}/reward-pool` - пополнение reward pool игры
+
+## Lobby
+- `POST /lobby/join` - присоединение к игре
+- `GET /lobby/{id}` - получение информации о лобби
+- `GET /lobby/active` - получение активного лобби пользователя
+- `POST /lobby/{id}/attempt` - отправка попытки угадать слово
+- `GET /lobby/{id}/attempts` - получение истории попыток
+
+## Admin / Service
+- `GET /stats` - общая статистика
+- `GET /stats/games` - статистика по играм
+- `GET /stats/users` - статистика по пользователям
+- `GET /rewards/pending` - список ожидающих выплат
+- `POST /rewards/process` - обработка выплаты
+- `GET /rewards/history` - история выплат

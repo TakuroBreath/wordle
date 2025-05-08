@@ -6,6 +6,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// Статусы игры
+const (
+	GameStatusInactive = "inactive"
+	GameStatusActive   = "active"
+)
+
 // Game представляет собой модель игры
 type Game struct {
 	ID               uuid.UUID `json:"id" db:"id"`

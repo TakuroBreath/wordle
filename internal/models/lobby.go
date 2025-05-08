@@ -6,6 +6,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// Статусы Лобби
+const (
+	LobbyStatusActive         = "active"          // Лобби активно
+	LobbyStatusSuccess        = "success"         // Игрок угадал слово
+	LobbyStatusFailedTries    = "failed_tries"    // Попытки исчерпаны
+	LobbyStatusFailedExpired  = "failed_expired"  // Время истекло
+	LobbyStatusFailedInternal = "failed_internal" // Внутренняя ошибка (напр., игра не найдена)
+	LobbyStatusCanceled       = "canceled"        // Отменено (например, игроком или админом)
+)
+
 // Lobby представляет собой модель игрового лобби
 type Lobby struct {
 	ID              uuid.UUID `json:"id" db:"id"`
@@ -18,6 +28,6 @@ type Lobby struct {
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
 	ExpiresAt       time.Time `json:"expires_at" db:"expires_at"` // 5 минут после создания
-	Status          string    `json:"status" db:"status"` // "active" или "inactive"
-	Attempts        []Attempt `json:"attempts"`
+	Status          string    `json:"status" db:"status"`         // Статус лобби
+	Attempts        []Attempt `json:"attempts,omitempty"`         // Список попыток, опускаем если пуст
 }

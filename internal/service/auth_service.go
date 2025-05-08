@@ -17,7 +17,6 @@ import (
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/internal/repository"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // AuthServiceImpl представляет собой реализацию сервиса для аутентификации пользователей
@@ -28,43 +27,42 @@ type AuthServiceImpl struct {
 	botToken  string
 }
 
-func NewAuthService(userRepo models.UserRepository, redisRepo repository.RedisRepository) AuthService {
-	// В реальном приложении секреты должны загружаться из переменных окружения или конфигурационного файла
+// NewAuthService создает новый экземпляр AuthServiceImpl.
+// jwtSecret и botToken должны передаваться из конфигурации.
+func NewAuthService(userRepo models.UserRepository, redisRepo repository.RedisRepository, jwtSecret, botToken string) models.AuthService {
 	return &AuthServiceImpl{
 		userRepo:  userRepo,
 		redisRepo: redisRepo,
-		jwtSecret: "your-jwt-secret", // Заменить на реальный секрет
-		botToken:  "your-bot-token",  // Заменить на реальный токен бота
+		jwtSecret: jwtSecret,
+		botToken:  botToken,
 	}
 }
 
-// Инициализация AuthServiceImpl происходит в service.go через функцию NewAuthService
-
 // InitAuth инициализирует аутентификацию пользователя на основе данных от Telegram
 func (s *AuthServiceImpl) InitAuth(ctx context.Context, initData string) (string, error) {
-	// Проверка валидности initData
 	if initData == "" {
 		return "", errors.New("init data cannot be empty")
 	}
 
-	// Парсинг initData
 	params, err := url.ParseQuery(initData)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse init data: %w", err)
 	}
 
-	// Проверка подписи
-	if !s.validateInitData(params) {
+	authDateStr := params.Get("auth_date")
+	if !s.validateAuthTimestamp(authDateStr) {
+		return "", errors.New("authentication data is outdated")
+	}
+
+	if !s.validateInitData(params, s.botToken) {
 		return "", errors.New("invalid init data signature")
 	}
 
-	// Получение данных пользователя
 	userStr := params.Get("user")
 	if userStr == "" {
-		return "", errors.New("user data not found")
+		return "", errors.New("user data not found in initData")
 	}
 
-	// Парсинг данных пользователя
 	var userData struct {
 		ID        int64  `json:"id"`
 		FirstName string `json:"first_name"`
@@ -72,179 +70,190 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initData string) (string
 		Username  string `json:"username,omitempty"`
 	}
 
-	err = json.Unmarshal([]byte(userStr), &userData)
-	if err != nil {
+	if err := json.Unmarshal([]byte(userStr), &userData); err != nil {
 		return "", fmt.Errorf("failed to parse user data: %w", err)
 	}
 
-	// Проверка существования пользователя
-	user, err := s.userRepo.GetByTelegramID(ctx, userData.ID)
+	telegramID := uint64(userData.ID)
+	user, err := s.userRepo.GetByTelegramID(ctx, telegramID)
 	if err != nil {
+		// Замените models.ErrUserNotFound на вашу реальную ошибку, определенную в пакете models
+		if !errors.Is(err, models.ErrUserNotFound) {
+			return "", fmt.Errorf("error fetching user: %w", err)
+		}
 		// Пользователь не найден, создаем нового
 		username := userData.Username
 		if username == "" {
-			username = fmt.Sprintf("%s %s", userData.FirstName, userData.LastName)
+			username = strings.TrimSpace(fmt.Sprintf("%s %s", userData.FirstName, userData.LastName))
 		}
 
-		user = &models.User{
-			ID:         uuid.New(),
-			TelegramID: userData.ID,
-			Username:   username,
-			Balance:    0,
-			Wins:       0,
-			Losses:     0,
+		newUser := &models.User{
+			TelegramID:  telegramID,
+			Username:    username,
+			FirstName:   userData.FirstName,
+			LastName:    userData.LastName,
+			Wallet:      "",
+			BalanceTon:  0.0,
+			BalanceUsdt: 0.0,
+			Wins:        0,
+			Losses:      0,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
 		}
 
-		err = s.userRepo.Create(ctx, user)
-		if err != nil {
-			return "", fmt.Errorf("failed to create user: %w", err)
+		if errCreate := s.userRepo.Create(ctx, newUser); errCreate != nil {
+			return "", fmt.Errorf("failed to create user: %w", errCreate)
+		}
+		user = newUser
+	} else {
+		changed := false
+		if user.Username != userData.Username && userData.Username != "" {
+			user.Username = userData.Username
+			changed = true
+		}
+		if user.FirstName != userData.FirstName {
+			user.FirstName = userData.FirstName
+			changed = true
+		}
+		if user.LastName != userData.LastName {
+			user.LastName = userData.LastName
+			changed = true
+		}
+		if changed {
+			user.UpdatedAt = time.Now()
+			if errUpdate := s.userRepo.Update(ctx, user); errUpdate != nil {
+				fmt.Printf("failed to update user data: %v\n", errUpdate) // Логгируем, не блокируем вход
+			}
 		}
 	}
 
-	// Генерация JWT токена
-	token, err := s.GenerateToken(ctx, *user)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	return token, nil
+	return s.GenerateToken(ctx, *user)
 }
 
-// VerifyAuth проверяет аутентификацию пользователя
-func (s *AuthServiceImpl) VerifyAuth(ctx context.Context, token string) (models.User, error) {
-	// Проверка валидности токена
-	user, err := s.ValidateToken(ctx, token)
-	if err != nil {
-		return models.User{}, fmt.Errorf("invalid token: %w", err)
-	}
-
-	return user, nil
+func (s *AuthServiceImpl) VerifyAuth(ctx context.Context, tokenString string) (*models.User, error) {
+	return s.ValidateToken(ctx, tokenString)
 }
 
-// GenerateToken генерирует JWT токен для пользователя
 func (s *AuthServiceImpl) GenerateToken(ctx context.Context, user models.User) (string, error) {
-	// Создание JWT токена
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":     user.ID.String(),
 		"telegram_id": user.TelegramID,
 		"username":    user.Username,
-		"exp":         time.Now().Add(24 * time.Hour).Unix(), // Токен действителен 24 часа
+		"exp":         time.Now().Add(24 * time.Hour).Unix(),
 	})
 
-	// Подписание токена
 	tokenString, err := token.SignedString([]byte(s.jwtSecret))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
 
-	// Сохранение токена в Redis для возможности инвалидации
-	err = s.redisRepo.SetSession(ctx, fmt.Sprintf("token:%s", user.ID.String()), tokenString, 24*60*60) // 24 часа
-	if err != nil {
-		return "", fmt.Errorf("failed to save token: %w", err)
+	sessionKey := fmt.Sprintf("token:%d", user.TelegramID)
+	expirationSeconds := int((24 * time.Hour).Seconds())
+	if err := s.redisRepo.SetSession(ctx, sessionKey, tokenString, expirationSeconds); err != nil {
+		fmt.Printf("failed to save token to redis: %v\n", err) // Логгируем
 	}
 
 	return tokenString, nil
 }
 
-// ValidateToken проверяет валидность JWT токена
-func (s *AuthServiceImpl) ValidateToken(ctx context.Context, tokenString string) (models.User, error) {
-	// Парсинг токена
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Проверка метода подписи
+func (s *AuthServiceImpl) ValidateToken(ctx context.Context, tokenString string) (*models.User, error) {
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-
 		return []byte(s.jwtSecret), nil
 	})
 
 	if err != nil {
-		return models.User{}, fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	// Проверка валидности токена
 	if !token.Valid {
-		return models.User{}, errors.New("invalid token")
+		return nil, errors.New("invalid token")
 	}
 
-	// Получение данных из токена
-	claims, ok := token.Claims.(jwt.MapClaims)
+	telegramIDFloat, ok := claims["telegram_id"].(float64)
 	if !ok {
-		return models.User{}, errors.New("invalid token claims")
+		return nil, errors.New("telegram_id not found or invalid in token claims")
+	}
+	telegramID := uint64(telegramIDFloat)
+
+	sessionKey := fmt.Sprintf("token:%d", telegramID)
+	savedToken, err := s.redisRepo.GetSession(ctx, sessionKey)
+	// Замените repository.ErrRedisNil на вашу реальную ошибку, определенную в пакете repository
+	if err != nil && !errors.Is(err, repository.ErrRedisNil) {
+		fmt.Printf("redis error when validating token: %v\n", err)
+	} else if err == nil && savedToken != tokenString {
+		return nil, errors.New("token has been invalidated or is not the latest")
 	}
 
-	// Получение ID пользователя
-	userIDStr, ok := claims["user_id"].(string)
-	if !ok {
-		return models.User{}, errors.New("user ID not found in token")
-	}
-
-	userID, err := uuid.Parse(userIDStr)
+	user, err := s.userRepo.GetByTelegramID(ctx, telegramID)
 	if err != nil {
-		return models.User{}, fmt.Errorf("invalid user ID: %w", err)
+		return nil, fmt.Errorf("failed to get user by telegram_id: %w", err)
 	}
 
-	// Проверка, что токен не был инвалидирован
-	savedToken, err := s.redisRepo.GetSession(ctx, fmt.Sprintf("token:%s", userIDStr))
-	if err != nil || savedToken != tokenString {
-		return models.User{}, errors.New("token has been invalidated")
-	}
-
-	// Получение пользователя из базы данных
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return models.User{}, fmt.Errorf("failed to get user: %w", err)
-	}
-
-	return *user, nil
+	return user, nil
 }
 
-// validateInitData проверяет подпись initData от Telegram
-func (s *AuthServiceImpl) validateInitData(params url.Values) bool {
-	// Получение хеша
-	hash := params.Get("hash")
-	if hash == "" {
+func (s *AuthServiceImpl) Logout(ctx context.Context, tokenString string) error {
+	claims, ok := s.parseClaims(tokenString)
+	if !ok {
+		return errors.New("invalid token claims for logout")
+	}
+
+	telegramIDFloat, ok := claims["telegram_id"].(float64)
+	if !ok {
+		return errors.New("telegram_id not found in token for logout")
+	}
+	telegramID := uint64(telegramIDFloat)
+
+	sessionKey := fmt.Sprintf("token:%d", telegramID)
+	return s.redisRepo.DeleteSession(ctx, sessionKey)
+}
+
+func (s *AuthServiceImpl) validateInitData(params url.Values, botToken string) bool {
+	hashToCompare := params.Get("hash")
+	if hashToCompare == "" {
 		return false
 	}
 
-	// Удаление хеша из параметров для проверки
-	params.Del("hash")
-
-	// Сортировка параметров
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Формирование строки для проверки
-	var dataCheckString strings.Builder
-	for _, k := range keys {
-		for _, v := range params[k] {
-			dataCheckString.WriteString(k)
-			dataCheckString.WriteString("=")
-			dataCheckString.WriteString(v)
-			dataCheckString.WriteString("\n")
+	var dataCheckArr []string
+	for k, v := range params {
+		if k == "hash" {
+			continue
 		}
+		dataCheckArr = append(dataCheckArr, fmt.Sprintf("%s=%s", k, v[0]))
 	}
+	sort.Strings(dataCheckArr)
+	dataCheckString := strings.Join(dataCheckArr, "\n")
 
-	// Вычисление HMAC-SHA256
-	h := hmac.New(sha256.New, []byte("WebAppData"))
-	h.Write([]byte(dataCheckString.String()))
-	signature := hex.EncodeToString(h.Sum(nil))
+	secretKeyHMAC := hmac.New(sha256.New, []byte("WebAppData"))
+	secretKeyHMAC.Write([]byte(botToken))
+	secretKey := secretKeyHMAC.Sum(nil)
 
-	// Сравнение хешей
-	return signature == hash
+	calculatedHashHMAC := hmac.New(sha256.New, secretKey)
+	calculatedHashHMAC.Write([]byte(dataCheckString))
+	calculatedHash := hex.EncodeToString(calculatedHashHMAC.Sum(nil))
+
+	return calculatedHash == hashToCompare
 }
 
-// validateAuthTimestamp проверяет, что временная метка не устарела
-func (s *AuthServiceImpl) validateAuthTimestamp(authDate string) bool {
-	// Парсинг временной метки
-	timestamp, err := strconv.ParseInt(authDate, 10, 64)
+func (s *AuthServiceImpl) validateAuthTimestamp(authDateStr string) bool {
+	if authDateStr == "" {
+		return false
+	}
+	authDate, err := strconv.ParseInt(authDateStr, 10, 64)
 	if err != nil {
 		return false
 	}
+	return (time.Now().Unix() - authDate) < 86400 // 24 часа
+}
 
-	// Проверка, что временная метка не старше 24 часов
-	return time.Now().Unix()-timestamp < 24*60*60
+func (s *AuthServiceImpl) parseClaims(tokenString string) (jwt.MapClaims, bool) {
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return nil, false
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	return claims, ok
 }

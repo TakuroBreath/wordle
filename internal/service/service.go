@@ -1,8 +1,6 @@
 package service
 
 import (
-	"context"
-
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/internal/repository"
 )
@@ -14,15 +12,8 @@ type Service interface {
 	Lobby() models.LobbyService
 	History() models.HistoryService
 	Transaction() models.TransactionService
-	Auth() AuthService
-}
-
-// AuthService определяет интерфейс для аутентификации пользователей
-type AuthService interface {
-	InitAuth(ctx context.Context, initData string) (string, error)
-	VerifyAuth(ctx context.Context, token string) (models.User, error)
-	GenerateToken(ctx context.Context, user models.User) (string, error)
-	ValidateToken(ctx context.Context, token string) (models.User, error)
+	Auth() models.AuthService
+	Job() models.JobService
 }
 
 // ServiceImpl представляет собой реализацию сервисного слоя
@@ -34,23 +25,49 @@ type ServiceImpl struct {
 	lobbyService   models.LobbyService
 	historyService models.HistoryService
 	txService      models.TransactionService
-	authService    AuthService
+	authService    models.AuthService
+	jobService     models.JobService
+	jwtSecret      string
+	botToken       string
 }
 
 // NewService создает новый экземпляр Service
-func NewService(repo repository.Repository, redisRepo repository.RedisRepository) Service {
+func NewService(repo repository.Repository, redisRepo repository.RedisRepository, jwtSecret, botToken string) Service {
 	service := &ServiceImpl{
 		repo:      repo,
 		redisRepo: redisRepo,
+		jwtSecret: jwtSecret,
+		botToken:  botToken,
 	}
 
-	// Инициализация сервисов
-	service.gameService = NewGameService(repo.Game(), redisRepo)
-	service.userService = NewUserService(repo.User())
-	service.lobbyService = NewLobbyService(repo.Lobby(), repo.Game(), repo.User(), repo.Attempt(), redisRepo)
-	service.historyService = NewHistoryService(repo.History())
-	service.txService = NewTransactionService(repo.Transaction(), repo.User())
-	service.authService = NewAuthService(repo.User(), redisRepo)
+	// Инициализация сервисов - сначала создаем базовые сервисы
+	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User())
+	service.txService = txService
+
+	service.userService = NewUserServiceImpl(repo.User(), txService)
+	service.gameService = NewGameService(repo.Game(), redisRepo, service.userService)
+	service.historyService = NewHistoryService(repo.History(), repo.Game(), repo.User(), repo.Lobby())
+
+	// Создаем лобби-сервис с зависимостями
+	service.lobbyService = NewLobbyService(
+		repo.Lobby(),
+		repo.Game(),
+		repo.Attempt(),
+		redisRepo,
+		service.userService,
+		txService,
+		service.historyService,
+	)
+
+	service.authService = NewAuthService(repo.User(), redisRepo, jwtSecret, botToken)
+
+	// Создаем сервис фоновых задач
+	service.jobService = NewJobService(
+		service.lobbyService,
+		service.txService,
+		service.gameService,
+		service.userService,
+	)
 
 	return service
 }
@@ -81,15 +98,13 @@ func (s *ServiceImpl) Transaction() models.TransactionService {
 }
 
 // Auth возвращает сервис для работы с аутентификацией
-func (s *ServiceImpl) Auth() AuthService {
+func (s *ServiceImpl) Auth() models.AuthService {
 	return s.authService
 }
 
-// Фабричные методы для создания сервисов
+// Job возвращает сервис для фоновых задач
+func (s *ServiceImpl) Job() models.JobService {
+	return s.jobService
+}
 
-// NewUserService определен в user_service.go
-// NewLobbyService определен в lobby_service.go
-// NewHistoryService определен в history_service.go
-// NewTransactionService определен в user_service.go
-
-// NewAuthService создает новый экземпляр AuthService
+// Фабричные методы для создания сервисов определены в соответствующих файлах

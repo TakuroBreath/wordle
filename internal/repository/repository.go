@@ -2,10 +2,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
 )
+
+// ErrRedisNil ошибка, которую возвращают клиенты Redis, когда ключ не найден.
+var ErrRedisNil = errors.New("redis: nil")
 
 // Repository представляет собой интерфейс для всех репозиториев в приложении
 type Repository interface {

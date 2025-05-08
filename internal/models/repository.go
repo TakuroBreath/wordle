@@ -2,10 +2,20 @@ package models
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrUserNotFound ошибка, когда пользователь не найден
+var ErrUserNotFound = errors.New("user not found")
+
+// ErrGameNotFound ошибка, когда игра не найдена
+var ErrGameNotFound = errors.New("game not found")
+
+// ErrLobbyNotFound ошибка, когда лобби не найдено
+var ErrLobbyNotFound = errors.New("lobby not found")
 
 // GameRepository определяет методы для работы с играми
 type GameRepository interface {
@@ -26,9 +36,10 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	GetByTelegramID(ctx context.Context, telegramID uint64) (*User, error)
 	Update(ctx context.Context, user *User) error
-	Delete(ctx context.Context, id uint64) error
+	Delete(ctx context.Context, telegramID uint64) error
 	GetByUsername(ctx context.Context, username string) (*User, error)
-	UpdateBalance(ctx context.Context, id uint64, amount float64) error
+	UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error
+	UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error
 	GetTopUsers(ctx context.Context, limit int) ([]*User, error)
 	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
 	ValidateBalance(ctx context.Context, userID uint64, requiredAmount float64) (bool, error)
