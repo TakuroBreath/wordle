@@ -158,11 +158,9 @@ func GetCurrentUser(c *gin.Context) (*models.User, bool) {
 
 // GetCurrentUserID возвращает ID текущего пользователя из контекста
 func GetCurrentUserID(c *gin.Context) (uint64, bool) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	user, ok := GetCurrentUser(c)
+	if !ok {
 		return 0, false
 	}
-
-	id, ok := userID.(uint64)
-	return id, ok
+	return user.TelegramID, true
 }

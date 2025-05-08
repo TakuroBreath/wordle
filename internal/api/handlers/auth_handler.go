@@ -84,11 +84,13 @@ func (h *AuthHandler) VerifyAuth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated": true,
 		"user": gin.H{
-			"telegram_id": user.TelegramID,
-			"username":    user.Username,
-			"first_name":  user.FirstName,
-			"last_name":   user.LastName,
-			"wallet":      user.Wallet,
+			"telegram_id":  user.TelegramID,
+			"username":     user.Username,
+			"first_name":   user.FirstName,
+			"last_name":    user.LastName,
+			"wallet":       user.Wallet,
+			"balance_ton":  user.BalanceTon,
+			"balance_usdt": user.BalanceUsdt,
 		},
 	})
 }

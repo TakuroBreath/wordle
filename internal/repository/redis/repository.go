@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/repository"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -24,6 +25,18 @@ func NewRepository(client *redis.Client) *Repository {
 
 // SetSession сохраняет сессию в Redis
 func (r *Repository) SetSession(ctx context.Context, key string, value interface{}, expiration int) error {
+	// Проверяем, является ли значение строкой
+	strValue, ok := value.(string)
+	if ok {
+		// Если это строка, сохраняем её напрямую
+		err := r.client.Set(ctx, key, strValue, time.Duration(expiration)*time.Second).Err()
+		if err != nil {
+			return fmt.Errorf("failed to set session in Redis: %w", err)
+		}
+		return nil
+	}
+
+	// Если это не строка, используем JSON-сериализацию
 	jsonValue, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("failed to marshal session data: %w", err)
@@ -42,9 +55,18 @@ func (r *Repository) GetSession(ctx context.Context, key string) (string, error)
 	val, err := r.client.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return "", fmt.Errorf("session not found")
+			return "", repository.ErrRedisNil
 		}
 		return "", fmt.Errorf("failed to get session from Redis: %w", err)
+	}
+
+	// Если значение обернуто в кавычки JSON, удаляем их
+	if len(val) > 1 && val[0] == '"' && val[len(val)-1] == '"' {
+		// Пытаемся распарсить как JSON строку
+		var unquoted string
+		if err := json.Unmarshal([]byte(val), &unquoted); err == nil {
+			return unquoted, nil
+		}
 	}
 
 	return val, nil
@@ -82,7 +104,7 @@ func (r *Repository) GetGameState(ctx context.Context, lobbyID uuid.UUID) (strin
 	val, err := r.client.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return "", fmt.Errorf("game state not found")
+			return "", repository.ErrRedisNil
 		}
 		return "", fmt.Errorf("failed to get game state from Redis: %w", err)
 	}
