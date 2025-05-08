@@ -40,6 +40,7 @@ func New(cfg *config.Config) (*App, error) {
 
 	// Инициализация сервисов
 	services := service.NewService(repos, redisRepos, cfg.Auth.JWTSecret, cfg.Auth.BotToken)
+	servicesImpl := services.(*service.ServiceImpl)
 
 	// Инициализация сервера
 	serverConfig := server.Config{
@@ -49,12 +50,12 @@ func New(cfg *config.Config) (*App, error) {
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 		BotToken:     cfg.Auth.BotToken,
 	}
-	httpServer := server.NewServer(serverConfig, services)
+	httpServer := server.NewServer(serverConfig, servicesImpl)
 
 	return &App{
 		cfg:      cfg,
 		server:   httpServer,
-		services: services,
+		services: servicesImpl,
 		repos:    repos,
 		redis:    redisRepos,
 	}, nil
@@ -65,13 +66,12 @@ func (a *App) Run() error {
 	// Запуск джобов для фоновой обработки
 	ctx := context.Background()
 	go func() {
-		if err := a.services.Job().StartJobScheduler(
+		a.services.Job().StartJobScheduler(
 			ctx,
 			time.Minute,   // Проверка истекших лобби каждую минуту
 			time.Minute*5, // Проверка ожидающих транзакций каждые 5 минут
-		); err != nil {
-			log.Printf("Failed to start job scheduler: %v", err)
-		}
+		)
+		// Обработка ошибок больше не нужна, так как метод не возвращает значений
 	}()
 
 	// Запуск HTTP-сервера

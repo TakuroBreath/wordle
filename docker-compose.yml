@@ -3,6 +3,7 @@ version: "3.8"
 services:
   app:
     build: .
+    container_name: wordle-app
     depends_on:
       postgres:
         condition: service_healthy
@@ -11,18 +12,29 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: wordle
+      HTTP_PORT: 8080
+      HTTP_READ_TIMEOUT: 10s
+      HTTP_WRITE_TIMEOUT: 10s
+      HTTP_IDLE_TIMEOUT: 60s
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wordle
+      POSTGRES_SSLMODE: disable
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
       JWT_SECRET: your-jwt-secret
-      BOT_TOKEN: your-bot-token
+      BOT_TOKEN: 7613582783:AAE5_-7beHhGHQi60PIPAfddMGecE_Dnmq0
+    restart: unless-stopped
+    networks:
+      - wordle-network
 
   postgres:
     image: postgres:15-alpine
+    container_name: wordle-postgres
     environment:
       POSTGRES_DB: wordle
       POSTGRES_USER: postgres
@@ -31,26 +43,37 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - wordle-network
 
   redis:
     image: redis:7-alpine
+    container_name: wordle-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - wordle-network
 
 volumes:
   postgres_data:
   redis_data:
+
+
+networks:
+  wordle-network:
+    driver: bridge

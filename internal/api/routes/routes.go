@@ -3,8 +3,10 @@ package routes
 import (
 	"github.com/TakuroBreath/wordle/internal/api/handlers"
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // SetupRouter настраивает маршруты API и middleware
@@ -16,10 +18,12 @@ func SetupRouter(
 	transactionService models.TransactionService,
 	botToken string,
 ) *gin.Engine {
+	logger.Log.Info("Setting up router")
+
 	router := gin.New()
 
 	// Глобальные middleware
-	router.Use(gin.Recovery())
+	router.Use(middleware.Recovery())
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS())
 
@@ -29,6 +33,8 @@ func SetupRouter(
 	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService)
 	lobbyHandler := handlers.NewLobbyHandler(lobbyService, gameService, userService)
 	transactionHandler := handlers.NewTransactionHandler(transactionService, userService)
+
+	logger.Log.Info("Handlers initialized")
 
 	// Middleware для аутентификации
 	authMiddleware := middleware.NewAuthMiddleware(authService, botToken)
@@ -46,6 +52,8 @@ func SetupRouter(
 		public.GET("/games/:id", gameHandler.GetGame)
 		public.GET("/games/search", gameHandler.SearchGames)
 	}
+
+	logger.Log.Info("Public routes configured", zap.String("route_group", "/api/v1"))
 
 	// Защищенные маршруты (требуют аутентификации)
 	private := router.Group("/api/v1")

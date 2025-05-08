@@ -165,3 +165,61 @@ Admin / Service
 	•	Реплей попыток
 	•	Механика "подсказок за комиссию"
 
+## Запуск с Docker
+
+Для запуска проекта с использованием Docker выполните следующие шаги:
+
+1. Клонируйте репозиторий:
+```bash
+git clone https://github.com/TakuroBreath/wordle.git
+cd wordle
+```
+
+2. Создайте файл `.env` с необходимыми переменными окружения или используйте значения по умолчанию:
+```bash
+cp .env.example .env  # Если есть пример файла окружения
+```
+
+3. Запустите приложение с помощью Docker Compose:
+```bash
+docker-compose up -d
+```
+
+4. Проверьте запущенные контейнеры:
+```bash
+docker-compose ps
+```
+
+5. Для просмотра логов:
+```bash
+docker-compose logs -f app
+```
+
+### Структура контейнеров
+
+- **app** - основное приложение (Go)
+- **postgres** - база данных PostgreSQL
+- **redis** - кэш Redis
+
+При запуске контейнера `app` автоматически выполняются миграции базы данных из директории `./migrations`.
+
+### Управление
+
+- Остановка контейнеров: `docker-compose down`
+- Перезапуск: `docker-compose restart [service]`
+- Удаление данных: `docker-compose down -v` (будьте осторожны - это удалит все тома!)
+
+## Миграции
+
+Приложение использует [golang-migrate](https://github.com/golang-migrate/migrate) для управления миграциями базы данных.
+
+### Ручной запуск миграций
+
+```bash
+# Запуск всех миграций
+docker-compose exec app migrate -path=/app/migrations -database postgres://postgres:postgres@postgres:5432/wordle?sslmode=disable up
+
+# Откат последней миграции
+docker-compose exec app migrate -path=/app/migrations -database postgres://postgres:postgres@postgres:5432/wordle?sslmode=disable down 1
+```
+
