@@ -224,3 +224,63 @@ func (r *UserRepository) GetTopUsers(ctx context.Context, limit int) ([]*models.
 
 	return users, nil
 }
+
+// GetUserStats получает статистику пользователя
+func (r *UserRepository) GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(DISTINCT g.id) as total_games,
+			COUNT(DISTINCT CASE WHEN h.status = 'win' THEN h.id END) as wins,
+			COUNT(DISTINCT CASE WHEN h.status = 'lose' THEN h.id END) as losses,
+			SUM(CASE WHEN h.status = 'win' THEN h.reward ELSE 0 END) as total_rewards,
+			AVG(CASE WHEN h.status = 'win' THEN h.reward ELSE NULL END) as avg_win_reward
+		FROM games g
+		LEFT JOIN history h ON g.id = h.game_id AND h.user_id = $1
+		WHERE g.creator_id = $1 OR h.user_id = $1
+	`
+
+	var stats struct {
+		TotalGames   int     `db:"total_games"`
+		Wins         int     `db:"wins"`
+		Losses       int     `db:"losses"`
+		TotalRewards float64 `db:"total_rewards"`
+		AvgWinReward float64 `db:"avg_win_reward"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(
+		&stats.TotalGames,
+		&stats.Wins,
+		&stats.Losses,
+		&stats.TotalRewards,
+		&stats.AvgWinReward,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_games":    stats.TotalGames,
+		"wins":           stats.Wins,
+		"losses":         stats.Losses,
+		"total_rewards":  stats.TotalRewards,
+		"avg_win_reward": stats.AvgWinReward,
+	}, nil
+}
+
+// ValidateBalance проверяет достаточность средств
+func (r *UserRepository) ValidateBalance(ctx context.Context, userID uint64, requiredAmount float64) (bool, error) {
+	query := `
+		SELECT balance >= $2
+		FROM users
+		WHERE id = $1
+	`
+
+	var hasEnough bool
+	err := r.db.QueryRowContext(ctx, query, userID, requiredAmount).Scan(&hasEnough)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate balance: %w", err)
+	}
+
+	return hasEnough, nil
+}

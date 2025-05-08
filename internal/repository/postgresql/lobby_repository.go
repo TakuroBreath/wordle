@@ -569,3 +569,102 @@ func (r *LobbyRepository) GetLobbiesByStatus(ctx context.Context, status string,
 
 	return lobbies, nil
 }
+
+// GetActiveLobbiesByTimeRange получает активные лобби в указанном временном диапазоне
+func (r *LobbyRepository) GetActiveLobbiesByTimeRange(ctx context.Context, startTime, endTime time.Time, limit, offset int) ([]*models.Lobby, error) {
+	query := `
+		SELECT l.id, l.game_id, l.user_id, l.max_tries, l.tries_used, l.bet_amount,
+			   l.potential_reward, l.created_at, l.updated_at, l.expires_at, l.status
+		FROM lobbies l
+		WHERE l.status = 'active'
+		AND l.created_at BETWEEN $1 AND $2
+		ORDER BY l.created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, startTime, endTime, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active lobbies by time range: %w", err)
+	}
+	defer rows.Close()
+
+	var lobbies []*models.Lobby
+	for rows.Next() {
+		var lobby models.Lobby
+		err := rows.Scan(
+			&lobby.ID,
+			&lobby.GameID,
+			&lobby.UserID,
+			&lobby.MaxTries,
+			&lobby.TriesUsed,
+			&lobby.BetAmount,
+			&lobby.PotentialReward,
+			&lobby.CreatedAt,
+			&lobby.UpdatedAt,
+			&lobby.ExpiresAt,
+			&lobby.Status,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan lobby: %w", err)
+		}
+		lobbies = append(lobbies, &lobby)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating lobbies: %w", err)
+	}
+
+	return lobbies, nil
+}
+
+// GetLobbyStats получает статистику по лобби
+func (r *LobbyRepository) GetLobbyStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			l.bet_amount,
+			l.potential_reward,
+			l.tries_used,
+			l.max_tries,
+			COUNT(a.id) as total_attempts,
+			MAX(a.created_at) as last_attempt_time,
+			EXTRACT(EPOCH FROM (l.expires_at - NOW())) as time_remaining
+		FROM lobbies l
+		LEFT JOIN attempts a ON l.id = a.lobby_id
+		WHERE l.id = $1
+		GROUP BY l.id, l.bet_amount, l.potential_reward, l.tries_used, l.max_tries
+	`
+
+	var stats struct {
+		BetAmount       float64   `db:"bet_amount"`
+		PotentialReward float64   `db:"potential_reward"`
+		TriesUsed       int       `db:"tries_used"`
+		MaxTries        int       `db:"max_tries"`
+		TotalAttempts   int       `db:"total_attempts"`
+		LastAttemptTime time.Time `db:"last_attempt_time"`
+		TimeRemaining   float64   `db:"time_remaining"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, lobbyID).Scan(
+		&stats.BetAmount,
+		&stats.PotentialReward,
+		&stats.TriesUsed,
+		&stats.MaxTries,
+		&stats.TotalAttempts,
+		&stats.LastAttemptTime,
+		&stats.TimeRemaining,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lobby stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"bet_amount":        stats.BetAmount,
+		"potential_reward":  stats.PotentialReward,
+		"tries_used":        stats.TriesUsed,
+		"max_tries":         stats.MaxTries,
+		"total_attempts":    stats.TotalAttempts,
+		"last_attempt_time": stats.LastAttemptTime,
+		"time_remaining":    stats.TimeRemaining,
+	}, nil
+}

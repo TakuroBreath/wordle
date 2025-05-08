@@ -626,3 +626,102 @@ func (r *GameRepository) CountByUser(ctx context.Context, userID uint64) (int, e
 
 	return count, nil
 }
+
+// GetGameStats получает статистику по игре
+func (r *GameRepository) GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(DISTINCT l.id) as total_lobbies,
+			COUNT(DISTINCT l.user_id) as unique_players,
+			SUM(l.bet_amount) as total_bets,
+			SUM(CASE WHEN h.status = 'win' THEN h.reward ELSE 0 END) as total_rewards,
+			AVG(CASE WHEN h.status = 'win' THEN h.reward ELSE NULL END) as avg_reward
+		FROM lobbies l
+		LEFT JOIN history h ON l.id = h.lobby_id
+		WHERE l.game_id = $1
+	`
+
+	var stats struct {
+		TotalLobbies  int     `db:"total_lobbies"`
+		UniquePlayers int     `db:"unique_players"`
+		TotalBets     float64 `db:"total_bets"`
+		TotalRewards  float64 `db:"total_rewards"`
+		AverageReward float64 `db:"avg_reward"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, gameID).Scan(
+		&stats.TotalLobbies,
+		&stats.UniquePlayers,
+		&stats.TotalBets,
+		&stats.TotalRewards,
+		&stats.AverageReward,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_lobbies":  stats.TotalLobbies,
+		"unique_players": stats.UniquePlayers,
+		"total_bets":     stats.TotalBets,
+		"total_rewards":  stats.TotalRewards,
+		"average_reward": stats.AverageReward,
+	}, nil
+}
+
+// SearchGames ищет игры по параметрам
+func (r *GameRepository) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*models.Game, error) {
+	query := `
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			   min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			   status, created_at, updated_at
+		FROM games
+		WHERE status = 'active'
+		AND ($1 = 0 OR min_bet >= $1)
+		AND ($2 = 0 OR max_bet <= $2)
+		AND ($3 = '' OR difficulty = $3)
+		ORDER BY created_at DESC
+		LIMIT $4 OFFSET $5
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, minBet, maxBet, difficulty, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search games: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating games: %w", err)
+	}
+
+	return games, nil
+}

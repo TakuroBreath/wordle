@@ -456,3 +456,50 @@ func (r *HistoryRepository) GetRecentGames(ctx context.Context, limit, offset in
 
 	return histories, nil
 }
+
+// GetGameHistoryStats получает статистику по истории игр
+func (r *HistoryRepository) GetGameHistoryStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_games,
+			COUNT(DISTINCT user_id) as unique_players,
+			SUM(CASE WHEN status = 'win' THEN reward ELSE 0 END) as total_rewards,
+			AVG(CASE WHEN status = 'win' THEN reward ELSE NULL END) as avg_reward,
+			COUNT(CASE WHEN status = 'win' THEN 1 END) as total_wins,
+			COUNT(CASE WHEN status = 'lose' THEN 1 END) as total_losses
+		FROM history
+		WHERE game_id = $1
+	`
+
+	var stats struct {
+		TotalGames    int     `db:"total_games"`
+		UniquePlayers int     `db:"unique_players"`
+		TotalRewards  float64 `db:"total_rewards"`
+		AvgReward     float64 `db:"avg_reward"`
+		TotalWins     int     `db:"total_wins"`
+		TotalLosses   int     `db:"total_losses"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, gameID).Scan(
+		&stats.TotalGames,
+		&stats.UniquePlayers,
+		&stats.TotalRewards,
+		&stats.AvgReward,
+		&stats.TotalWins,
+		&stats.TotalLosses,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game history stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_games":    stats.TotalGames,
+		"unique_players": stats.UniquePlayers,
+		"total_rewards":  stats.TotalRewards,
+		"avg_reward":     stats.AvgReward,
+		"total_wins":     stats.TotalWins,
+		"total_losses":   stats.TotalLosses,
+		"win_rate":       float64(stats.TotalWins) / float64(stats.TotalGames),
+	}, nil
+}

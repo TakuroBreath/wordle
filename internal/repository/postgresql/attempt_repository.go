@@ -581,3 +581,62 @@ func (r *AttemptRepository) Update(ctx context.Context, attempt *models.Attempt)
 
 	return nil
 }
+
+// GetAttemptStats получает статистику по попыткам
+func (r *AttemptRepository) GetAttemptStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_attempts,
+			COUNT(DISTINCT user_id) as unique_players,
+			AVG(EXTRACT(EPOCH FROM (created_at - LAG(created_at) OVER (ORDER BY created_at)))) as avg_time_between_attempts,
+			MAX(created_at) as last_attempt_time
+		FROM attempts
+		WHERE lobby_id = $1
+	`
+
+	var stats struct {
+		TotalAttempts          int       `db:"total_attempts"`
+		UniquePlayers          int       `db:"unique_players"`
+		AvgTimeBetweenAttempts float64   `db:"avg_time_between_attempts"`
+		LastAttemptTime        time.Time `db:"last_attempt_time"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, lobbyID).Scan(
+		&stats.TotalAttempts,
+		&stats.UniquePlayers,
+		&stats.AvgTimeBetweenAttempts,
+		&stats.LastAttemptTime,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get attempt stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_attempts":            stats.TotalAttempts,
+		"unique_players":            stats.UniquePlayers,
+		"avg_time_between_attempts": stats.AvgTimeBetweenAttempts,
+		"last_attempt_time":         stats.LastAttemptTime,
+	}, nil
+}
+
+// ValidateWord проверяет валидность слова
+func (r *AttemptRepository) ValidateWord(ctx context.Context, word string) (bool, error) {
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM attempts
+			WHERE word = $1
+			AND result->>'is_valid' = 'true'
+			LIMIT 1
+		)
+	`
+
+	var isValid bool
+	err := r.db.QueryRowContext(ctx, query, word).Scan(&isValid)
+	if err != nil {
+		return false, fmt.Errorf("failed to validate word: %w", err)
+	}
+
+	return isValid, nil
+}

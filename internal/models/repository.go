@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,8 @@ type GameRepository interface {
 	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Game, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
+	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error)
+	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
 }
 
 // UserRepository определяет методы для работы с пользователями
@@ -27,6 +30,8 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	UpdateBalance(ctx context.Context, id uint64, amount float64) error
 	GetTopUsers(ctx context.Context, limit int) ([]*User, error)
+	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+	ValidateBalance(ctx context.Context, userID uint64, requiredAmount float64) (bool, error)
 }
 
 // LobbyRepository определяет методы для работы с лобби
@@ -47,6 +52,8 @@ type LobbyRepository interface {
 	GetActiveWithAttempts(ctx context.Context, limit, offset int) ([]*Lobby, error)
 	ExtendExpirationTime(ctx context.Context, id uuid.UUID, duration int) error
 	GetLobbiesByStatus(ctx context.Context, status string, limit, offset int) ([]*Lobby, error)
+	GetActiveLobbiesByTimeRange(ctx context.Context, startTime, endTime time.Time, limit, offset int) ([]*Lobby, error)
+	GetLobbyStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error)
 }
 
 // AttemptRepository определяет методы для работы с попытками
@@ -59,6 +66,8 @@ type AttemptRepository interface {
 	GetLastAttempt(ctx context.Context, lobbyID uuid.UUID, userID uint64) (*Attempt, error)
 	CountByLobbyID(ctx context.Context, lobbyID uuid.UUID) (int, error)
 	GetByWord(ctx context.Context, lobbyID uuid.UUID, word string) (*Attempt, error)
+	GetAttemptStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error)
+	ValidateWord(ctx context.Context, word string) (bool, error)
 }
 
 // HistoryRepository определяет методы для работы с историей
@@ -73,6 +82,7 @@ type HistoryRepository interface {
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*History, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
 	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+	GetGameHistoryStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error)
 }
 
 // TransactionRepository определяет методы для работы с транзакциями
@@ -85,4 +95,6 @@ type TransactionRepository interface {
 	GetByType(ctx context.Context, transactionType string, limit, offset int) ([]*Transaction, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
 	GetUserBalance(ctx context.Context, userID uint64) (float64, error)
+	GetTransactionStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+	CheckSufficientFunds(ctx context.Context, userID uint64, amount float64) (bool, error)
 }

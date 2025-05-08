@@ -292,3 +292,71 @@ func (r *TransactionRepository) GetUserBalance(ctx context.Context, userID uint6
 
 	return balance, nil
 }
+
+// GetTransactionStats получает статистику по транзакциям
+func (r *TransactionRepository) GetTransactionStats(ctx context.Context, userID uint64) (map[string]interface{}, error) {
+	query := `
+		SELECT 
+			COUNT(*) as total_transactions,
+			COUNT(DISTINCT type) as unique_types,
+			SUM(CASE WHEN type = 'deposit' THEN amount ELSE 0 END) as total_deposits,
+			SUM(CASE WHEN type = 'withdraw' THEN amount ELSE 0 END) as total_withdrawals,
+			MAX(created_at) as last_transaction_time,
+			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_transactions,
+			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_transactions
+		FROM transactions
+		WHERE user_id = $1
+	`
+
+	var stats struct {
+		TotalTransactions     int       `db:"total_transactions"`
+		UniqueTypes           int       `db:"unique_types"`
+		TotalDeposits         float64   `db:"total_deposits"`
+		TotalWithdrawals      float64   `db:"total_withdrawals"`
+		LastTransactionTime   time.Time `db:"last_transaction_time"`
+		CompletedTransactions int       `db:"completed_transactions"`
+		PendingTransactions   int       `db:"pending_transactions"`
+	}
+
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(
+		&stats.TotalTransactions,
+		&stats.UniqueTypes,
+		&stats.TotalDeposits,
+		&stats.TotalWithdrawals,
+		&stats.LastTransactionTime,
+		&stats.CompletedTransactions,
+		&stats.PendingTransactions,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction stats: %w", err)
+	}
+
+	return map[string]interface{}{
+		"total_transactions":     stats.TotalTransactions,
+		"unique_types":           stats.UniqueTypes,
+		"total_deposits":         stats.TotalDeposits,
+		"total_withdrawals":      stats.TotalWithdrawals,
+		"last_transaction_time":  stats.LastTransactionTime,
+		"completed_transactions": stats.CompletedTransactions,
+		"pending_transactions":   stats.PendingTransactions,
+		"net_balance":            stats.TotalDeposits - stats.TotalWithdrawals,
+	}, nil
+}
+
+// CheckSufficientFunds проверяет достаточность средств
+func (r *TransactionRepository) CheckSufficientFunds(ctx context.Context, userID uint64, amount float64) (bool, error) {
+	query := `
+		SELECT COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE -amount END), 0) >= $2
+		FROM transactions
+		WHERE user_id = $1 AND status = 'completed'
+	`
+
+	var hasEnough bool
+	err := r.db.QueryRowContext(ctx, query, userID, amount).Scan(&hasEnough)
+	if err != nil {
+		return false, fmt.Errorf("failed to check sufficient funds: %w", err)
+	}
+
+	return hasEnough, nil
+}
