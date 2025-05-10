@@ -9,6 +9,7 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/internal/repository"
+	"github.com/TakuroBreath/wordle/pkg/metrics"
 	"github.com/google/uuid"
 )
 
@@ -271,6 +272,7 @@ func (s *LobbyServiceImpl) ProcessAttempt(ctx context.Context, lobbyID uuid.UUID
 		if errors.Is(err, models.ErrLobbyNotFound) {
 			return nil, errors.New("lobby not found")
 		}
+		metrics.RecordError("attempt_validation")
 		return nil, fmt.Errorf("failed to get lobby: %w", err)
 	}
 
@@ -434,6 +436,7 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 func (s *LobbyServiceImpl) FinishLobby(ctx context.Context, lobbyID uuid.UUID, success bool) error {
 	lobby, err := s.lobbyRepo.GetByID(ctx, lobbyID)
 	if err != nil {
+		metrics.RecordError("lobby_finish")
 		return fmt.Errorf("cannot finish lobby, failed to get lobby %s: %w", lobbyID, err)
 	}
 	if lobby.Status != models.LobbyStatusActive {
@@ -443,8 +446,10 @@ func (s *LobbyServiceImpl) FinishLobby(ctx context.Context, lobbyID uuid.UUID, s
 	var finalStatus string
 	if success {
 		finalStatus = models.LobbyStatusSuccess
+		metrics.IncrementGameComplete(lobby.TriesUsed)
 	} else {
 		finalStatus = models.LobbyStatusCanceled // Используем Canceled для принудительного завершения
+		metrics.IncrementGameAbandoned()
 	}
 	return s.handleLobbyFinish(ctx, lobby, nil, finalStatus)
 }

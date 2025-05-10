@@ -13,6 +13,7 @@ type Config struct {
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Auth     AuthConfig
+	Metrics  MetricsConfig
 }
 
 // HTTPConfig представляет конфигурацию HTTP-сервера
@@ -45,6 +46,12 @@ type RedisConfig struct {
 type AuthConfig struct {
 	JWTSecret string `envconfig:"JWT_SECRET" default:"super_secret_key"`
 	BotToken  string `envconfig:"BOT_TOKEN" default:"bot_token"`
+}
+
+// MetricsConfig представляет конфигурацию для метрик Prometheus
+type MetricsConfig struct {
+	Enabled bool   `envconfig:"METRICS_ENABLED" default:"true"`
+	Port    string `envconfig:"METRICS_PORT" default:"9090"`
 }
 
 // New создает новую конфигурацию из переменных окружения

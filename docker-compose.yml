@@ -9,6 +9,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     ports:
       - "8080:8080"
     environment:
@@ -28,7 +30,22 @@ services:
       REDIS_DB: 0
       JWT_SECRET: your-jwt-secret
       BOT_TOKEN: 7613582783:AAE5_-7beHhGHQi60PIPAfddMGecE_Dnmq0
+      SERVICE_NAME: wordle-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
+      INSECURE_MODE: "true"
     restart: unless-stopped
+    networks:
+      - wordle-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - wordle-network
 

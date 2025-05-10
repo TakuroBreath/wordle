@@ -11,6 +11,8 @@ import (
 	"github.com/TakuroBreath/wordle/internal/repository/postgresql"
 	"github.com/TakuroBreath/wordle/internal/repository/redis"
 	"github.com/TakuroBreath/wordle/internal/service"
+	"github.com/TakuroBreath/wordle/pkg/metrics"
+	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 )
 
 // App представляет структуру приложения
@@ -63,6 +65,13 @@ func New(cfg *config.Config) (*App, error) {
 
 // Run запускает приложение
 func (a *App) Run() error {
+	// Инициализация OpenTelemetry
+	cleanup := otel.InitTracer()
+	defer cleanup(context.Background())
+
+	// Инициализация Prometheus метрик
+	metrics.InitMetrics(a.cfg.Metrics.Enabled, a.cfg.Metrics.Port)
+
 	// Запуск джобов для фоновой обработки
 	ctx := context.Background()
 	go func() {
@@ -71,7 +80,6 @@ func (a *App) Run() error {
 			time.Minute,   // Проверка истекших лобби каждую минуту
 			time.Minute*5, // Проверка ожидающих транзакций каждые 5 минут
 		)
-		// Обработка ошибок больше не нужна, так как метод не возвращает значений
 	}()
 
 	// Запуск HTTP-сервера
