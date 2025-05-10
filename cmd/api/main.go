@@ -8,16 +8,16 @@ import (
 )
 
 func main() {
-	// Инициализируем логгер
-	isProduction := true // Можно сделать настраиваемым через конфиг
-	logger.Init(isProduction)
-	defer logger.Sync()
-
-	// Загрузка конфигурации
+	// Загрузка конфигурации до инициализации логгера
 	cfg, err := config.New()
 	if err != nil {
-		logger.Log.Fatal("Failed to load config", zap.Error(err))
+		// Пока используем стандартный логгер, так как наш еще не инициализирован
+		panic("Failed to load config: " + err.Error())
 	}
+
+	// Инициализируем логгер с загруженной конфигурацией
+	logger.Init(cfg.Logging)
+	defer logger.Sync()
 
 	logger.Log.Info("Configuration loaded successfully")
 

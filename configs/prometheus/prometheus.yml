@@ -7,7 +7,7 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'wordle'
+  - job_name: 'wordle-app'
     static_configs:
-      - targets: ['host.docker.internal:9090']
+      - targets: ['app:9090']
     metrics_path: '/metrics' 

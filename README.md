@@ -13,6 +13,10 @@
 	•	API: REST (JSON over HTTPS), Gin
 	•	Очередь: Redis / BullMQ (для обработки событий транзакций)
 	•	Аутентификация: через Telegram Mini App авторизацию
+	•	Observability:
+		• Метрики: Prometheus + Grafana
+		• Логирование: ELK Stack + Filebeat
+		• Трейсинг: Jaeger (OpenTelemetry)
 
 ⸻
 
@@ -200,8 +204,41 @@ docker-compose logs -f app
 - **app** - основное приложение (Go)
 - **postgres** - база данных PostgreSQL
 - **redis** - кэш Redis
+- **jaeger** - система трейсинга
+- **prometheus** - сбор метрик
+- **grafana** - визуализация метрик
+- **elasticsearch, logstash, kibana, filebeat** - система логирования ELK Stack
 
-При запуске контейнера `app` автоматически выполняются миграции базы данных из директории `./migrations`.
+### Варианты запуска
+
+- **Полная система (включая мониторинг и логирование)**:
+  ```bash
+  docker-compose -f docker-compose.full.yml up -d
+  ```
+
+- **Только бэкенд**:
+  ```bash
+  docker-compose up -d
+  ```
+
+- **Только мониторинг**:
+  ```bash
+  docker-compose -f docker-compose.monitoring.yml up -d
+  ```
+
+- **Только логирование**:
+  ```bash
+  docker-compose -f docker-compose.logging.yml up -d
+  ```
+
+### Доступные сервисы
+
+- **API**: http://localhost:8080
+- **Grafana**: http://localhost:3000 (admin/secret)
+- **Prometheus**: http://localhost:9091
+- **Kibana**: http://localhost:5601
+- **Jaeger UI**: http://localhost:16686
+- **Elasticsearch**: http://localhost:9200
 
 ### Управление
 
@@ -222,4 +259,38 @@ docker-compose exec app migrate -path=/app/migrations -database postgres://postg
 # Откат последней миграции
 docker-compose exec app migrate -path=/app/migrations -database postgres://postgres:postgres@postgres:5432/wordle?sslmode=disable down 1
 ```
+
+## Система наблюдаемости (Observability)
+
+### Метрики (Prometheus + Grafana)
+
+Prometheus собирает метрики из приложения через HTTP-эндпоинт `/metrics`. Grafana используется для визуализации этих метрик.
+
+#### Собираемые метрики
+
+1. **HTTP-метрики**:
+   - `http_request_duration_seconds` - время выполнения запросов
+   - `http_requests_total` - количество запросов
+   - `errors_total` - количество ошибок
+
+2. **Бизнес-метрики**:
+   - `wordle_game_start_total` - количество начатых игр
+   - `wordle_game_complete_total` - количество завершенных игр
+   - `wordle_game_abandoned_total` - количество брошенных игр
+   - `wordle_active_games` - текущее количество активных игр
+   - `wordle_word_guessed_total` - статистика угаданных слов по количеству попыток
+
+### Логирование (ELK Stack + Filebeat)
+
+Структурированные логи с информацией о трейсинге собираются Filebeat, обрабатываются Logstash и хранятся в Elasticsearch. Kibana используется для визуализации и анализа.
+
+### Трейсинг (Jaeger/OpenTelemetry)
+
+Трейсинг позволяет отслеживать распространение запросов через различные компоненты системы, измерять производительность и обнаруживать проблемы.
+
+## Документация
+
+- [Система мониторинга](./monitoring-README.md)
+- [Система логирования](./logging-README.md)
+- [Полная система наблюдаемости](./observability-README.md)
 

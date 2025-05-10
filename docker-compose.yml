@@ -33,6 +33,12 @@ services:
       SERVICE_NAME: wordle-api
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
       INSECURE_MODE: "true"
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      LOG_OUTPUT: stdout
+      PRODUCTION: "true"
+      METRICS_ENABLED: "true"
+      METRICS_PORT: 9090
     restart: unless-stopped
     networks:
       - wordle-network

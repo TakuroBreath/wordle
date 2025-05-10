@@ -1,0 +1,14 @@
+http.host: "0.0.0.0"
+xpack.monitoring.elasticsearch.hosts: [ "http://elasticsearch:9200" ]
+
+# Настройки производительности
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50
+
+# Настройки очередей
+queue.type: memory
+queue.max_bytes: 1024mb
+
+# Логирование
+log.level: info 

@@ -3,6 +3,7 @@ package config
 import (
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
@@ -14,6 +15,7 @@ type Config struct {
 	Redis    RedisConfig
 	Auth     AuthConfig
 	Metrics  MetricsConfig
+	Logging  logger.Config
 }
 
 // HTTPConfig представляет конфигурацию HTTP-сервера
@@ -56,7 +58,6 @@ type MetricsConfig struct {
 
 // New создает новую конфигурацию из переменных окружения
 func New() (*Config, error) {
-	// Загрузка переменных из .env файла, если он существует
 	_ = godotenv.Load()
 
 	var config Config
