@@ -12,6 +12,7 @@ type GameService interface {
 	CreateGame(ctx context.Context, game *Game) error
 	GetGame(ctx context.Context, id uuid.UUID) (*Game, error)
 	GetUserGames(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
+	GetCreatedGames(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
 	UpdateGame(ctx context.Context, game *Game) error
 	DeleteGame(ctx context.Context, id uuid.UUID) error
 	GetActiveGames(ctx context.Context, limit, offset int) ([]*Game, error)

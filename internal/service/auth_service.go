@@ -68,6 +68,12 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initDataStr string) (str
 	log.Info("Initializing authentication from Telegram Mini App data",
 		zap.Int("init_data_length", len(initDataStr)))
 
+	// Удаляем префикс "tma " если он есть
+	if strings.HasPrefix(initDataStr, "tma ") {
+		initDataStr = strings.TrimPrefix(initDataStr, "tma ")
+		log.Debug("Removed 'tma ' prefix from init data")
+	}
+
 	// Валидируем данные Telegram Mini App
 	log.Debug("Validating Telegram Mini App data")
 	if err := initdata.Validate(initDataStr, s.botToken, time.Hour); err != nil {

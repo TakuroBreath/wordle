@@ -671,3 +671,34 @@ func (s *GameServiceImpl) CalculateReward(bet float64, multiplier float64, tries
 
 	return reward
 }
+
+// GetCreatedGames получает список игр, созданных пользователем
+func (s *GameServiceImpl) GetCreatedGames(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	log := s.logger.With(zap.String("method", "GetCreatedGames"),
+		zap.Uint64("user_id", userID),
+		zap.Int("limit", limit),
+		zap.Int("offset", offset))
+	log.Info("Getting games created by user")
+
+	// Оборачиваем вызов репозитория в трейсинг
+	result, err := WithTracing(ctx, "GameService", "GetCreatedGames", func(ctx context.Context) (interface{}, error) {
+		// Добавляем атрибуты к span
+		span := otel.SpanFromContext(ctx)
+		otel.AddAttributesToSpan(span,
+			attribute.Int64("user_id", int64(userID)),
+			attribute.Int("limit", limit),
+			attribute.Int("offset", offset))
+
+		// Выполняем вызов метода GetByCreator
+		return s.gameRepo.GetByCreator(ctx, userID, limit, offset)
+	})
+
+	if err != nil {
+		log.Error("Failed to get created games", zap.Error(err))
+		return nil, err
+	}
+
+	games := result.([]*models.Game)
+	log.Info("Created games retrieved successfully", zap.Int("count", len(games)))
+	return games, nil
+}

@@ -24,6 +24,7 @@ type GameRepository interface {
 	Create(ctx context.Context, game *Game) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
+	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
 	Update(ctx context.Context, game *Game) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)

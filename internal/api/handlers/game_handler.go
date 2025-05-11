@@ -800,3 +800,78 @@ func (h *GameHandler) SearchGames(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// GetCreatedGames получает список игр, созданных пользователем
+func (h *GameHandler) GetCreatedGames(c *gin.Context) {
+	// Создаем новый span для обработчика
+	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetCreatedGames")
+	defer span.End()
+
+	// Обновляем контекст
+	c.Request = c.Request.WithContext(ctx)
+
+	userID, exists := middleware.GetCurrentUserID(c)
+	if !exists {
+		span.SetAttributes(attribute.String("error", "user not found in context"))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		return
+	}
+
+	// Добавляем атрибуты к span
+	span.SetAttributes(attribute.Int64("user_id", int64(userID)))
+
+	limit := 10
+	offset := 0
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
+			limit = val
+		}
+	}
+
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if val, err := strconv.Atoi(offsetStr); err == nil && val >= 0 {
+			offset = val
+		}
+	}
+
+	// Добавляем параметры запроса в span
+	span.SetAttributes(
+		attribute.Int("limit", limit),
+		attribute.Int("offset", offset),
+	)
+
+	games, err := h.gameService.GetCreatedGames(c, userID, limit, offset)
+	if err != nil {
+		otel.RecordError(ctx, err)
+		span.SetAttributes(attribute.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get created games"})
+		return
+	}
+
+	// Добавляем количество полученных игр
+	span.SetAttributes(attribute.Int("games_count", len(games)))
+
+	result := make([]gin.H, 0, len(games))
+	for _, game := range games {
+		result = append(result, gin.H{
+			"id":                game.ID,
+			"word":              game.Word, // Создатель может видеть слово
+			"word_length":       game.Length,
+			"difficulty":        game.Difficulty,
+			"max_tries":         game.MaxTries,
+			"title":             game.Title,
+			"description":       game.Description,
+			"min_bet":           game.MinBet,
+			"max_bet":           game.MaxBet,
+			"reward_multiplier": game.RewardMultiplier,
+			"currency":          game.Currency,
+			"reward_pool_ton":   game.RewardPoolTon,
+			"reward_pool_usdt":  game.RewardPoolUsdt,
+			"status":            game.Status,
+			"created_at":        game.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, result)
+}

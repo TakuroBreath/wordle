@@ -82,6 +82,7 @@ func SetupRouter(
 		// Игры
 		private.POST("/games", gameHandler.CreateGame)
 		private.GET("/games/my", gameHandler.GetUserGames)
+		private.GET("/games/created", gameHandler.GetCreatedGames)
 		private.DELETE("/games/:id", gameHandler.DeleteGame)
 		private.POST("/games/:id/reward", gameHandler.AddToRewardPool)
 		private.POST("/games/:id/activate", gameHandler.ActivateGame)

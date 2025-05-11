@@ -80,13 +80,8 @@ func Init(cfg Config) {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	if cfg.Format == "json" {
-		encoder = zapcore.NewJSONEncoder(encoderConfig)
-	} else {
-		// Для консоли используем цветное форматирование
-		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
-	}
+	// Всегда используем JSON формат для лучшей совместимости с ELK
+	encoder = zapcore.NewJSONEncoder(encoderConfig)
 
 	// Создаем ядро логгера
 	core := zapcore.NewCore(encoder, sink, level)
