@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/logger"
@@ -201,63 +202,86 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 	log := r.logger.With(zap.String("method", "GetAll"))
 	log.Info("Getting all games", zap.Int("limit", limit), zap.Int("offset", offset))
 
-	query := `
+	result, err := repository.WithTracing(ctx, "GameRepository", "GetAll", func(ctx context.Context) (interface{}, error) {
+		sqlCtx, sqlSpan := otel.StartSpan(ctx, "sql.query.GetAllGames")
+		defer sqlSpan.End()
+
+		otel.AddAttributesToSpan(sqlSpan,
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "games"),
+		)
+
+		query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
 			status, created_at, updated_at
 		FROM games
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
-	`
+		`
 
-	log.Debug("Executing SQL query", zap.String("query", query))
+		log.Debug("Executing SQL query", zap.String("query", query))
+		otel.AddAttributesToSpan(sqlSpan, attribute.String("db.statement", query))
 
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
-	if err != nil {
-		log.Error("Failed to get games", zap.Error(err))
-		return nil, fmt.Errorf("failed to get games: %w", err)
-	}
-	defer rows.Close()
-
-	var games []*models.Game
-	for rows.Next() {
-		var game models.Game
-
-		err := rows.Scan(
-			&game.ID,
-			&game.CreatorID,
-			&game.Word,
-			&game.Length,
-			&game.Difficulty,
-			&game.MaxTries,
-			&game.Title,
-			&game.Description,
-			&game.MinBet,
-			&game.MaxBet,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.RewardPoolTon,
-			&game.RewardPoolUsdt,
-			&game.Status,
-			&game.CreatedAt,
-			&game.UpdatedAt,
-		)
-
+		rows, err := r.db.QueryContext(sqlCtx, query, limit, offset)
 		if err != nil {
-			log.Error("Failed to scan game", zap.Error(err))
-			return nil, fmt.Errorf("failed to scan game: %w", err)
+			log.Error("Failed to get games", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("failed to get games: %w", err)
+		}
+		defer rows.Close()
+
+		var games []*models.Game
+		for rows.Next() {
+			var game models.Game
+
+			err := rows.Scan(
+				&game.ID,
+				&game.CreatorID,
+				&game.Word,
+				&game.Length,
+				&game.Difficulty,
+				&game.MaxTries,
+				&game.Title,
+				&game.Description,
+				&game.MinBet,
+				&game.MaxBet,
+				&game.RewardMultiplier,
+				&game.Currency,
+				&game.RewardPoolTon,
+				&game.RewardPoolUsdt,
+				&game.Status,
+				&game.CreatedAt,
+				&game.UpdatedAt,
+			)
+
+			if err != nil {
+				log.Error("Failed to scan game", zap.Error(err))
+				otel.RecordError(sqlCtx, err)
+				return nil, fmt.Errorf("failed to scan game: %w", err)
+			}
+
+			games = append(games, &game)
 		}
 
-		games = append(games, &game)
+		if err = rows.Err(); err != nil {
+			log.Error("Error iterating games", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("error iterating games: %w", err)
+		}
+
+		log.Info("Retrieved games", zap.Int("count", len(games)))
+		otel.AddAttributesToSpan(sqlSpan, attribute.String("db.games.count", strconv.Itoa(len(games))))
+
+		return games, nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	if err = rows.Err(); err != nil {
-		log.Error("Error iterating games", zap.Error(err))
-		return nil, fmt.Errorf("error iterating games: %w", err)
-	}
-
-	log.Info("Retrieved games", zap.Int("count", len(games)))
-	return games, nil
+	return result.([]*models.Game), nil
 }
 
 // GetActive получает все активные игры с пагинацией
@@ -265,7 +289,11 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 	log := r.logger.With(zap.String("method", "GetActive"))
 	log.Info("Getting active games", zap.Int("limit", limit), zap.Int("offset", offset))
 
-	query := `
+	result, err := repository.WithTracing(ctx, "GameRepository", "GetActive", func(ctx context.Context) (interface{}, error) {
+		sqlCtx, sqlSpan := otel.StartSpan(ctx, "sql.query.GetAllGames")
+		defer sqlSpan.End()
+
+		query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
 			status, created_at, updated_at
@@ -273,61 +301,81 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 		WHERE status = 'active'
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
-	`
+		`
 
-	log.Debug("Executing SQL query", zap.String("query", query))
+		log.Debug("Executing SQL query", zap.String("query", query))
+		otel.AddAttributesToSpan(sqlSpan, attribute.String("db.statement", query))
 
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
-	if err != nil {
-		log.Error("Failed to get active games", zap.Error(err))
-		return nil, fmt.Errorf("failed to get active games: %w", err)
-	}
-	defer rows.Close()
-
-	var games []*models.Game
-	for rows.Next() {
-		var game models.Game
-
-		err := rows.Scan(
-			&game.ID,
-			&game.CreatorID,
-			&game.Word,
-			&game.Length,
-			&game.Difficulty,
-			&game.MaxTries,
-			&game.Title,
-			&game.Description,
-			&game.MinBet,
-			&game.MaxBet,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.RewardPoolTon,
-			&game.RewardPoolUsdt,
-			&game.Status,
-			&game.CreatedAt,
-			&game.UpdatedAt,
-		)
-
+		rows, err := r.db.QueryContext(sqlCtx, query, limit, offset)
 		if err != nil {
-			log.Error("Failed to scan game", zap.Error(err))
-			return nil, fmt.Errorf("failed to scan game: %w", err)
+			log.Error("Failed to get active games", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("failed to get active games: %w", err)
+		}
+		defer rows.Close()
+
+		var games []*models.Game
+		for rows.Next() {
+			var game models.Game
+
+			err := rows.Scan(
+				&game.ID,
+				&game.CreatorID,
+				&game.Word,
+				&game.Length,
+				&game.Difficulty,
+				&game.MaxTries,
+				&game.Title,
+				&game.Description,
+				&game.MinBet,
+				&game.MaxBet,
+				&game.RewardMultiplier,
+				&game.Currency,
+				&game.RewardPoolTon,
+				&game.RewardPoolUsdt,
+				&game.Status,
+				&game.CreatedAt,
+				&game.UpdatedAt,
+			)
+
+			if err != nil {
+				log.Error("Failed to scan game", zap.Error(err))
+				otel.RecordError(sqlCtx, err)
+				return nil, fmt.Errorf("failed to scan game: %w", err)
+			}
+
+			games = append(games, &game)
 		}
 
-		games = append(games, &game)
+		if err = rows.Err(); err != nil {
+			log.Error("Error iterating active games", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("error iterating active games: %w", err)
+		}
+
+		log.Info("Retrieved active games", zap.Int("count", len(games)))
+		otel.AddAttributesToSpan(sqlSpan, attribute.String("db.active_games.count", strconv.Itoa(len(games))))
+
+		return games, nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	if err = rows.Err(); err != nil {
-		log.Error("Error iterating active games", zap.Error(err))
-		return nil, fmt.Errorf("error iterating active games: %w", err)
-	}
-
-	log.Info("Retrieved active games", zap.Int("count", len(games)))
-	return games, nil
+	return result.([]*models.Game), nil
 }
 
 // GetByCreator получает игры по ID создателя с пагинацией
 func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*models.Game, error) {
-	query := `
+	log := r.logger.With(zap.String("method", "GetByCreator"))
+	log.Info("Getting games by creator", zap.Int("limit", limit), zap.Int("offset", offset))
+
+	result, err := repository.WithTracing(ctx, "GameRepository", "GetByCreator", func(ctx context.Context) (interface{}, error) {
+		sqlCtx, sqlSpan := otel.StartSpan(ctx, "sql.query.GetByCreator")
+		defer sqlSpan.End()
+
+		query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
 			status, created_at, updated_at
@@ -335,50 +383,64 @@ func (r *GameRepository) GetByCreator(ctx context.Context, creatorID uint64, lim
 		WHERE creator_id = $1
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
-	`
+		`
 
-	rows, err := r.db.QueryContext(ctx, query, creatorID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get games by creator: %w", err)
-	}
-	defer rows.Close()
+		log.Debug("Executing SQL query", zap.String("query", query))
+		otel.AddAttributesToSpan(sqlSpan, attribute.String("db.statement", query))
 
-	var games []*models.Game
-	for rows.Next() {
-		var game models.Game
-
-		err := rows.Scan(
-			&game.ID,
-			&game.CreatorID,
-			&game.Word,
-			&game.Length,
-			&game.Difficulty,
-			&game.MaxTries,
-			&game.Title,
-			&game.Description,
-			&game.MinBet,
-			&game.MaxBet,
-			&game.RewardMultiplier,
-			&game.Currency,
-			&game.RewardPoolTon,
-			&game.RewardPoolUsdt,
-			&game.Status,
-			&game.CreatedAt,
-			&game.UpdatedAt,
-		)
-
+		rows, err := r.db.QueryContext(sqlCtx, query, creatorID, limit, offset)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan game: %w", err)
+			log.Error("Failed to get games by creator", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("failed to get games by creator: %w", err)
+		}
+		defer rows.Close()
+
+		var games []*models.Game
+		for rows.Next() {
+			var game models.Game
+
+			err := rows.Scan(
+				&game.ID,
+				&game.CreatorID,
+				&game.Word,
+				&game.Length,
+				&game.Difficulty,
+				&game.MaxTries,
+				&game.Title,
+				&game.Description,
+				&game.MinBet,
+				&game.MaxBet,
+				&game.RewardMultiplier,
+				&game.Currency,
+				&game.RewardPoolTon,
+				&game.RewardPoolUsdt,
+				&game.Status,
+				&game.CreatedAt,
+				&game.UpdatedAt,
+			)
+
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan game: %w", err)
+			}
+
+			games = append(games, &game)
 		}
 
-		games = append(games, &game)
+		if err = rows.Err(); err != nil {
+			log.Error("Failed itarating games by creator", zap.Error(err))
+			otel.RecordError(sqlCtx, err)
+			return nil, fmt.Errorf("error iterating games by creator: %w", err)
+		}
+
+		return games, nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating games by creator: %w", err)
-	}
-
-	return games, nil
+	return result.([]*models.Game), nil
 }
 
 // Update обновляет игру в базе данных

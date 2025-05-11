@@ -53,7 +53,6 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 
 	var input struct {
 		Word             string  `json:"word" binding:"required"`
-		Length           int     `json:"length" binding:"required,min=3,max=10"`
 		Difficulty       string  `json:"difficulty" binding:"required"`
 		MaxTries         int     `json:"max_tries" binding:"required,min=1,max=10"`
 		Title            string  `json:"title" binding:"required"`
@@ -75,7 +74,7 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 	// Добавляем параметры игры в span
 	span.SetAttributes(
 		attribute.String("word", input.Word),
-		attribute.Int("length", input.Length),
+		attribute.Int("length", len([]rune(input.Word))),
 		attribute.String("difficulty", input.Difficulty),
 		attribute.Int("max_tries", input.MaxTries),
 		attribute.String("title", input.Title),
@@ -99,13 +98,6 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 		return
 	}
 
-	// Проверка длины слова
-	if len([]rune(input.Word)) != input.Length {
-		span.SetAttributes(attribute.String("error", "word length mismatch"))
-		c.JSON(http.StatusBadRequest, gin.H{"error": "word length does not match the specified length"})
-		return
-	}
-
 	// Проверка соотношения ставок
 	if input.MinBet > input.MaxBet {
 		span.SetAttributes(attribute.String("error", "min_bet > max_bet"))
@@ -116,7 +108,7 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 	game := &models.Game{
 		CreatorID:        userID,
 		Word:             input.Word,
-		Length:           input.Length,
+		Length:           len([]rune(input.Word)),
 		Difficulty:       input.Difficulty,
 		MaxTries:         input.MaxTries,
 		Title:            input.Title,
