@@ -95,7 +95,7 @@ type TransactionService interface {
 	ProcessTonDeposit(ctx context.Context, userID uint64, amount float64, txHash string) error
 	GenerateTonWalletAddress(ctx context.Context, userID uint64) (string, error)
 	MonitorPendingWithdrawals(ctx context.Context) error
-	GetTransactionByHash(ctx context.Context, hash string) (*Transaction, error)
+	IsTonTransactionProcessed(ctx context.Context, hash string) bool
 }
 
 // AuthService определяет методы для аутентификации и авторизации пользователей

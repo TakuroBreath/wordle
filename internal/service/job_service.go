@@ -92,7 +92,10 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 	}
 
 	for _, transaction := range transactions.Transactions {
-		if transaction.Hash
+		if s.transactionService.IsTonTransactionProcessed(ctx, transaction.Hash) {
+			continue
+		}
+		
 		if transaction.InMsg.Value.DecodedBody.String() != "" {
 			comment := transaction.InMsg.Value.DecodedBody.String()
 			game, err := s.gameService.GetGame(ctx, uuid.MustParse(comment))
@@ -111,6 +114,11 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 			err = s.gameService.AddToRewardPool(ctx, game.ID, amount)
 			if err != nil {
 				return fmt.Errorf("failed to add to reward pool: %w", err)
+			}
+
+			err = s.transactionService.ProcessTonDeposit(ctx, game.CreatorID, amount, transaction.Hash)
+			if err != nil {
+				return fmt.Errorf("failed to process ton deposit: %w", err)
 			}
 		}
 	}
@@ -166,7 +174,7 @@ func (s *JobServiceImpl) StartJobScheduler(ctx context.Context, lobbyCheckInterv
 	// Запускаем мониторинг транзакций кошелька и активацию игр
 	go func() {
 		// Проверяем кошелек каждые 2 минуты
-		walletTicker := time.NewTicker(2 * time.Minute)
+		walletTicker := time.NewTicker(5 * time.Second)
 		defer walletTicker.Stop()
 
 		for {
@@ -189,7 +197,7 @@ func (s *JobServiceImpl) StartJobScheduler(ctx context.Context, lobbyCheckInterv
 	close(done)
 }
 
-// RunOnce выполняет все задачи один раз (полезно для тестирования)
+// RunOnce выполняет все задачи один раз
 func (s *JobServiceImpl) RunOnce(ctx context.Context) error {
 	// Обрабатываем истекшие лобби
 	if err := s.ProcessExpiredLobbies(ctx); err != nil {
