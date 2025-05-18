@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/models"
+	"github.com/google/uuid"
+	"github.com/tonkeeper/tonapi-go"
 )
 
 // JobServiceImpl представляет собой реализацию models.JobService
@@ -14,6 +18,7 @@ type JobServiceImpl struct {
 	transactionService models.TransactionService
 	gameService        models.GameService
 	userService        models.UserService
+	tonapiClient       *tonapi.Client
 }
 
 // NewJobService создает новый экземпляр models.JobService
@@ -23,11 +28,19 @@ func NewJobService(
 	gameService models.GameService,
 	userService models.UserService,
 ) models.JobService {
+	token := os.Getenv("TONAPI_KEY")
+
+	client, err := tonapi.NewClient(tonapi.TonApiURL, tonapi.WithToken(token))
+	if err != nil {
+		log.Fatalf("Failed to create TONAPI client: %v", err)
+	}
+
 	return &JobServiceImpl{
 		lobbyService:       lobbyService,
 		transactionService: transactionService,
 		gameService:        gameService,
 		userService:        userService,
+		tonapiClient:       client,
 	}
 }
 
@@ -64,6 +77,43 @@ func (s *JobServiceImpl) ProcessPendingTransactions(ctx context.Context) error {
 
 	// Здесь можно добавить обработку других типов отложенных транзакций
 	// например, депозитов, наград и т.д.
+
+	return nil
+}
+
+// MonitorWalletTransactions отслеживает транзакции кошелька и активирует неактивные игры
+func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
+	transactions, err := s.tonapiClient.GetBlockchainAccountTransactions(context.Background(), tonapi.GetBlockchainAccountTransactionsParams{
+		AccountID: "UQC9L3EkJxGMEYKCOhN3KQGCLh1i51ohTpO1NV21BbMHxTyE",
+		Limit:     tonapi.NewOptInt32(10),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get transactions: %w", err)
+	}
+
+	for _, transaction := range transactions.Transactions {
+		if transaction.Hash
+		if transaction.InMsg.Value.DecodedBody.String() != "" {
+			comment := transaction.InMsg.Value.DecodedBody.String()
+			game, err := s.gameService.GetGame(ctx, uuid.MustParse(comment))
+			if err != nil {
+				return fmt.Errorf("failed to get game: %w", err)
+			}
+
+			if game.Status == models.GameStatusInactive {
+				err = s.gameService.ActivateGame(ctx, game.ID)
+				if err != nil {
+					return fmt.Errorf("failed to activate game: %w", err)
+				}
+			}
+			amount := min(float64(transaction.InMsg.Value.Value) / 1000000000, game.MaxBet * game.RewardMultiplier)
+
+			err = s.gameService.AddToRewardPool(ctx, game.ID, amount)
+			if err != nil {
+				return fmt.Errorf("failed to add to reward pool: %w", err)
+			}
+		}
+	}
 
 	return nil
 }
@@ -113,6 +163,27 @@ func (s *JobServiceImpl) StartJobScheduler(ctx context.Context, lobbyCheckInterv
 		}
 	}()
 
+	// Запускаем мониторинг транзакций кошелька и активацию игр
+	go func() {
+		// Проверяем кошелек каждые 2 минуты
+		walletTicker := time.NewTicker(2 * time.Minute)
+		defer walletTicker.Stop()
+
+		for {
+			select {
+			case <-walletTicker.C:
+				err := s.MonitorWalletTransactions(ctx)
+				if err != nil {
+					fmt.Printf("ERROR: Failed to monitor wallet transactions: %v\n", err)
+				}
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// Ожидаем сигнал остановки
 	<-ctx.Done()
 	close(done)
@@ -128,6 +199,11 @@ func (s *JobServiceImpl) RunOnce(ctx context.Context) error {
 	// Обрабатываем отложенные транзакции
 	if err := s.ProcessPendingTransactions(ctx); err != nil {
 		return fmt.Errorf("failed to process pending transactions: %w", err)
+	}
+
+	// Мониторим транзакции кошелька и активируем игры
+	if err := s.MonitorWalletTransactions(ctx); err != nil {
+		return fmt.Errorf("failed to monitor wallet transactions: %w", err)
 	}
 
 	return nil

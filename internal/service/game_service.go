@@ -128,7 +128,7 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 		// Установка начальных значений
 		game.ID = uuid.New()
 		game.Status = models.GameStatusInactive // Используем константу
-		game.RewardPoolTon = 0.0                // Явно инициализируем пулы
+		game.RewardPoolTon = 0.0              // Явно инициализируем пулы
 		game.RewardPoolUsdt = 0.0
 		now := time.Now()
 		game.CreatedAt = now

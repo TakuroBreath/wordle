@@ -38,10 +38,10 @@ func InitTracer() func(context.Context) error {
 			otlptracegrpc.WithEndpoint(collectorURL),
 		),
 	)
-
 	if err != nil {
 		log.Fatal(err)
 	}
+	
 	resources, err := resource.New(
 		context.Background(),
 		resource.WithAttributes(
