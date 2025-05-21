@@ -18,6 +18,11 @@ type TransactionServiceImpl struct {
 	// можно добавить сюда другие репозитории или сервисы
 }
 
+// IsTonTransactionProcessed implements models.TransactionService.
+func (s *TransactionServiceImpl) IsTonTransactionProcessed(ctx context.Context, hash string) bool {
+	panic("unimplemented")
+}
+
 // NewTransactionServiceImpl создает новый экземпляр TransactionServiceImpl
 func NewTransactionServiceImpl(
 	transactionRepo models.TransactionRepository,
