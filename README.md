@@ -294,3 +294,16 @@ Prometheus собирает метрики из приложения через 
 - [Система логирования](./logging-README.md)
 - [Полная система наблюдаемости](./observability-README.md)
 
+
+## Запуск фронтенда
+
+В директории `frontend` находится клиентская часть на React для Telegram Mini App.
+Для запуска локально выполните:
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+Фронтенд обращается к API по адресу, заданному в переменной `REACT_APP_API_URL` (по умолчанию `http://localhost:8080/api/v1`). После запуска приложение будет доступно на `http://localhost:3000`.
