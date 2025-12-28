@@ -1,5 +1,5 @@
 # Стадия сборки
-FROM golang:1.24-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 # Установка зависимостей для сборки
 RUN apk add --no-cache gcc musl-dev git
@@ -17,16 +17,16 @@ RUN go mod download
 COPY . .
 
 # Собираем приложение
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/wordle ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/wordle ./cmd/api
 
 # Стадия миграции
-FROM golang:1.24-alpine AS migrate
+FROM golang:1.22-alpine AS migrate
 
 # Установка migrate
 RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 # Финальная стадия
-FROM alpine:3.18
+FROM alpine:3.19
 
 # Устанавливаем необходимые зависимости
 RUN apk add --no-cache ca-certificates tzdata postgresql-client curl bash
@@ -45,6 +45,9 @@ RUN ls -la /app/migrations
 
 # Делаем entrypoint.sh исполняемым
 RUN chmod +x /app/entrypoint.sh
+
+# Открываем порты
+EXPOSE 8080 9090
 
 # Указываем entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]

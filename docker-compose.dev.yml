@@ -1,9 +1,15 @@
 version: "3.8"
 
+# Docker Compose для локальной разработки
+# Включает backend, frontend, PostgreSQL, Redis и Jaeger
+
 services:
-  app:
-    build: .
-    container_name: wordle-app
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wordle-backend
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,27 +42,24 @@ services:
       REDIS_DB: 0
       
       # Authentication
-      JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
+      JWT_SECRET: dev-jwt-secret-key-12345
       BOT_TOKEN: ${BOT_TOKEN:-your-telegram-bot-token}
       
-      # TON Blockchain
-      TON_ENABLED: ${TON_ENABLED:-false}
-      TON_NETWORK: ${TON_NETWORK:-testnet}
-      TON_CUSTODIAL_WALLET: ${TON_CUSTODIAL_WALLET:-}
-      TON_WALLET_SEED: ${TON_WALLET_SEED:-}
-      TON_API_KEY: ${TON_API_KEY:-}
+      # TON Blockchain (отключено для разработки)
+      TON_ENABLED: "false"
+      TON_NETWORK: testnet
       
       # Game settings
-      COMMISSION_RATE: ${COMMISSION_RATE:-0.05}
+      COMMISSION_RATE: "0.05"
       
       # Observability
       SERVICE_NAME: wordle-api
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
       INSECURE_MODE: "true"
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_LEVEL: debug
       LOG_FORMAT: json
       LOG_OUTPUT: stdout
-      PRODUCTION: "true"
+      PRODUCTION: "false"
       METRICS_ENABLED: "true"
       METRICS_PORT: 9090
     restart: unless-stopped
@@ -69,18 +72,23 @@ services:
     networks:
       - wordle-network
 
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wordle-frontend
+    depends_on:
+      - backend
     ports:
-      - "16686:16686" # UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "3000:80"
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      REACT_APP_API_URL: http://localhost:8080/api/v1
+    restart: unless-stopped
     networks:
       - wordle-network
 
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: wordle-postgres
@@ -93,7 +101,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -101,6 +109,7 @@ services:
     networks:
       - wordle-network
 
+  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: wordle-redis
@@ -110,7 +119,7 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -118,10 +127,22 @@ services:
     networks:
       - wordle-network
 
+  # Jaeger (Tracing)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - wordle-network
+
 volumes:
   postgres_data:
   redis_data:
-
 
 networks:
   wordle-network:
