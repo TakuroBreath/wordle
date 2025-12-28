@@ -100,7 +100,7 @@ const GameCard = ({ game, onJoin, onDetails }) => {
         title,
         description,
         difficulty,
-        word,
+        // word is intentionally not exposed to prevent cheating
         length,
         max_tries: maxTries,
         min_bet: minBet,

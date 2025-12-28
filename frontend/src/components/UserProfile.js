@@ -132,7 +132,7 @@ const ActionButton = styled.button`
 `;
 
 const UserProfile = ({ onWithdraw, onDeposit }) => {
-    const { user, refreshUserData } = useAuth();
+    const { user } = useAuth();
 
     if (!user) {
         return <div>Загрузка профиля...</div>;

@@ -165,20 +165,6 @@ const CopyButton = styled.button`
   }
 `;
 
-const QRCodePlaceholder = styled.div`
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-  margin: 16px 0;
-  
-  img {
-    max-width: 200px;
-    margin: 0 auto;
-  }
-`;
-
 const QuickAmounts = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);

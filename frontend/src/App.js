@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'r
 import styled from 'styled-components';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TonConnectProvider } from './context/TonConnectContext';
-import HomePage from './pages/HomePage';
+// import HomePage from './pages/HomePage'; // Currently unused
 import GamePage from './pages/GamePage';
 import LobbyPage from './pages/LobbyPage';
 import CreateGamePage from './pages/CreateGamePage';
@@ -47,7 +47,7 @@ const ProtectedRoute = ({ children }) => {
 };
 
 const AppRoutes = () => {
-    const { isAuthenticated, loading } = useAuth();
+    const { loading } = useAuth();
 
     if (loading) {
         return <div>Загрузка...</div>;

@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { gameAPI } from '../api';
-import { useAuth } from '../context/AuthContext';
 import { useTonConnect } from '../context/TonConnectContext';
 
 const Container = styled.div`
@@ -308,7 +307,6 @@ const CancelButton = styled.button`
 
 const CreateGamePage = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
     const { isConnected, sendTransaction, getPaymentDeepLink } = useTonConnect();
 
     const [formData, setFormData] = useState({
