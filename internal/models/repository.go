@@ -23,6 +23,7 @@ var ErrGameNotFound = errors.New("game not found")
 type GameRepository interface {
 	Create(ctx context.Context, game *Game) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
+	GetByShortID(ctx context.Context, shortID string) (*Game, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
 	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
 	Update(ctx context.Context, game *Game) error

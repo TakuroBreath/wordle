@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/logger"
@@ -127,7 +128,17 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 
 		// Установка начальных значений
 		game.ID = uuid.New()
-		game.Status = models.GameStatusInactive // Используем константу
+		
+		// Генерация ShortID (8 символов)
+		game.ShortID = strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+		
+		game.Status = models.GameStatusPendingActivation // Wait for deposit
+		
+		if game.DepositAmount == 0 {
+			// Calculate deposit required: max_bet * multiplier as minimum safety
+			game.DepositAmount = game.MaxBet * game.RewardMultiplier
+		}
+
 		game.RewardPoolTon = 0.0              // Явно инициализируем пулы
 		game.RewardPoolUsdt = 0.0
 		now := time.Now()
@@ -139,6 +150,7 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 
 		log.Debug("Game parameters validated, creating game",
 			zap.String("game_id", game.ID.String()),
+			zap.String("short_id", game.ShortID),
 			zap.String("status", game.Status))
 
 		err := s.gameRepo.Create(ctx, game)
@@ -179,6 +191,25 @@ func (s *GameServiceImpl) GetGame(ctx context.Context, id uuid.UUID) (*models.Ga
 		zap.String("status", game.Status))
 	return game, nil
 }
+
+// GetByShortID получает игру по короткому ID
+func (s *GameServiceImpl) GetByShortID(ctx context.Context, shortID string) (*models.Game, error) {
+	log := s.logger.With(zap.String("method", "GetByShortID"), zap.String("short_id", shortID))
+	log.Info("Getting game by ShortID")
+
+	result, err := WithTracing(ctx, "GameService", "GetByShortID", func(ctx context.Context) (interface{}, error) {
+		return s.gameRepo.GetByShortID(ctx, shortID)
+	})
+
+	if err != nil {
+		log.Error("Failed to get game by short ID", zap.Error(err))
+		return nil, err
+	}
+
+	game := result.(*models.Game)
+	return game, nil
+}
+
 
 // GetUserGames получает список игр пользователя
 func (s *GameServiceImpl) GetUserGames(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
@@ -435,13 +466,6 @@ func (s *GameServiceImpl) AddToRewardPool(ctx context.Context, gameID uuid.UUID,
 		return errors.New("deposit amount must be positive")
 	}
 
-	// Проверяем, что игра активна для депозита
-	if game.Status != models.GameStatusActive {
-		log.Error("Cannot add to reward pool of inactive game",
-			zap.String("status", game.Status))
-		return errors.New("cannot add to reward pool of inactive game")
-	}
-
 	// В зависимости от валюты игры добавляем средства в соответствующий пул
 	if game.Currency == models.CurrencyTON {
 		log.Info("Adding to TON reward pool",
@@ -492,15 +516,15 @@ func (s *GameServiceImpl) ActivateGame(ctx context.Context, gameID uuid.UUID) er
 		zap.Float64("reward_pool_ton", game.RewardPoolTon),
 		zap.Float64("reward_pool_usdt", game.RewardPoolUsdt))
 
-	// Проверяем, что игра неактивна
-	if game.Status != models.GameStatusInactive {
+	// Проверяем, что игра неактивна (или pending)
+	if game.Status == models.GameStatusActive {
 		log.Error("Game is already active", zap.String("status", game.Status))
 		return errors.New("game is already active")
 	}
 
 	// Проверяем, что reward pool содержит необходимую сумму
 	var rewardPoolBalance float64
-	var requiredBalance float64 = game.MaxBet * game.RewardMultiplier
+	var requiredBalance float64 = game.DepositAmount // Использовать DepositAmount, который мы записали при создании
 
 	if game.Currency == models.CurrencyTON {
 		rewardPoolBalance = game.RewardPoolTon
@@ -516,7 +540,8 @@ func (s *GameServiceImpl) ActivateGame(ctx context.Context, gameID uuid.UUID) er
 		zap.Float64("required_balance", requiredBalance))
 
 	// Проверяем достаточность средств для активации
-	if rewardPoolBalance < requiredBalance {
+	// Разрешаем небольшую погрешность float
+	if rewardPoolBalance < requiredBalance - 0.0001 {
 		log.Error("Insufficient funds in reward pool",
 			zap.Float64("reward_pool_balance", rewardPoolBalance),
 			zap.Float64("required_balance", requiredBalance))

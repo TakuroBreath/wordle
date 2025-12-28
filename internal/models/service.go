@@ -21,6 +21,7 @@ type GameService interface {
 	AddToRewardPool(ctx context.Context, gameID uuid.UUID, amount float64) error
 	ActivateGame(ctx context.Context, gameID uuid.UUID) error
 	DeactivateGame(ctx context.Context, gameID uuid.UUID) error
+	GetByShortID(ctx context.Context, shortID string) (*Game, error)
 }
 
 // UserService определяет методы для работы с пользователями

@@ -11,13 +11,16 @@ import (
 
 // Статусы игры
 const (
-	GameStatusInactive = "inactive"
-	GameStatusActive   = "active"
+	GameStatusInactive          = "inactive"
+	GameStatusActive            = "active"
+	GameStatusPendingActivation = "pending_activation"
+	GameStatusFinished          = "finished"
 )
 
 // Game представляет собой модель игры
 type Game struct {
 	ID               uuid.UUID `json:"id" db:"id"`
+	ShortID          string    `json:"short_id" db:"short_id"`
 	CreatorID        uint64    `json:"creator_id" db:"creator_id"` // Telegram ID создателя
 	Word             string    `json:"word" db:"word"`
 	Length           int       `json:"length" db:"length"`
@@ -28,10 +31,13 @@ type Game struct {
 	MinBet           float64   `json:"min_bet" db:"min_bet"`
 	MaxBet           float64   `json:"max_bet" db:"max_bet"`
 	RewardMultiplier float64   `json:"reward_multiplier" db:"reward_multiplier"`
+	DepositAmount    float64   `json:"deposit_amount" db:"deposit_amount"`
+	CommissionRate   float64   `json:"commission_rate" db:"commission_rate"`
+	TimeLimitMinutes int       `json:"time_limit_minutes" db:"time_limit_minutes"`
 	Currency         string    `json:"currency" db:"currency"` // "TON" или "USDT"
 	RewardPoolTon    float64   `json:"reward_pool_ton" db:"reward_pool_ton"`
 	RewardPoolUsdt   float64   `json:"reward_pool_usdt" db:"reward_pool_usdt"`
-	Status           string    `json:"status" db:"status"` // "active" или "inactive"
+	Status           string    `json:"status" db:"status"` // "active", "inactive", "pending_activation"
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -42,6 +48,7 @@ func (g *Game) UnmarshalJSON(data []byte) error {
 	// Создаем временную структуру с теми же полями, но max_tries как json.RawMessage
 	type Alias struct {
 		ID               uuid.UUID       `json:"id"`
+		ShortID          string          `json:"short_id"`
 		CreatorID        uint64          `json:"creator_id"`
 		Word             string          `json:"word"`
 		Length           int             `json:"length"`
@@ -52,6 +59,9 @@ func (g *Game) UnmarshalJSON(data []byte) error {
 		MinBet           float64         `json:"min_bet"`
 		MaxBet           float64         `json:"max_bet"`
 		RewardMultiplier float64         `json:"reward_multiplier"`
+		DepositAmount    float64         `json:"deposit_amount"`
+		CommissionRate   float64         `json:"commission_rate"`
+		TimeLimitMinutes int             `json:"time_limit_minutes"`
 		Currency         string          `json:"currency"`
 		RewardPoolTon    float64         `json:"reward_pool_ton"`
 		RewardPoolUsdt   float64         `json:"reward_pool_usdt"`
@@ -68,6 +78,7 @@ func (g *Game) UnmarshalJSON(data []byte) error {
 
 	// Копируем все поля, кроме max_tries
 	g.ID = aux.ID
+	g.ShortID = aux.ShortID
 	g.CreatorID = aux.CreatorID
 	g.Word = aux.Word
 	g.Length = aux.Length
@@ -77,6 +88,9 @@ func (g *Game) UnmarshalJSON(data []byte) error {
 	g.MinBet = aux.MinBet
 	g.MaxBet = aux.MaxBet
 	g.RewardMultiplier = aux.RewardMultiplier
+	g.DepositAmount = aux.DepositAmount
+	g.CommissionRate = aux.CommissionRate
+	g.TimeLimitMinutes = aux.TimeLimitMinutes
 	g.Currency = aux.Currency
 	g.RewardPoolTon = aux.RewardPoolTon
 	g.RewardPoolUsdt = aux.RewardPoolUsdt

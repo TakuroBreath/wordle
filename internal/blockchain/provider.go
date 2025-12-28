@@ -8,11 +8,11 @@ import (
 type Network string
 
 const (
-	NetworkTON     Network = "TON"
+	NetworkTON      Network = "TON"
 	NetworkEthereum Network = "ETH"
-	NetworkBSC     Network = "BSC"
-	NetworkTron    Network = "TRX"
-	NetworkSolana  Network = "SOL"
+	NetworkBSC      Network = "BSC"
+	NetworkTron     Network = "TRX"
+	NetworkSolana   Network = "SOL"
 )
 
 // TransactionStatus статус транзакции в блокчейне
@@ -37,6 +37,7 @@ type TransactionInfo struct {
 	Timestamp   int64             `json:"timestamp"`
 	Fee         float64           `json:"fee"`
 	Network     Network           `json:"network"`
+	Comment     string            `json:"comment,omitempty"` // Added for TON comments
 }
 
 // WithdrawRequest запрос на вывод средств
@@ -108,6 +109,9 @@ type BlockchainProvider interface {
 
 	// GetRequiredConfirmations возвращает количество необходимых подтверждений
 	GetRequiredConfirmations() int
+
+	// GetRecentTransactions returns the latest incoming transactions for the custodial wallet
+	GetRecentTransactions(ctx context.Context, limit int) ([]TransactionInfo, error)
 }
 
 // MultiChainProvider провайдер, поддерживающий несколько блокчейнов
