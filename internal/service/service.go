@@ -1,6 +1,11 @@
 package service
 
 import (
+	"github.com/TakuroBreath/wordle/internal/blockchain"
+	"github.com/TakuroBreath/wordle/internal/blockchain/ethereum"
+	"github.com/TakuroBreath/wordle/internal/blockchain/mock"
+	"github.com/TakuroBreath/wordle/internal/blockchain/ton"
+	"github.com/TakuroBreath/wordle/internal/config"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/internal/repository"
 )
@@ -14,34 +19,57 @@ type Service interface {
 	Transaction() models.TransactionService
 	Auth() models.AuthService
 	Job() models.JobService
+	BlockchainProvider() blockchain.BlockchainProvider
 }
 
 // ServiceImpl представляет собой реализацию сервисного слоя
 type ServiceImpl struct {
-	repo           repository.Repository
-	redisRepo      repository.RedisRepository
-	gameService    models.GameService
-	userService    models.UserService
-	lobbyService   models.LobbyService
-	historyService models.HistoryService
-	txService      models.TransactionService
-	authService    models.AuthService
-	jobService     models.JobService
-	jwtSecret      string
-	botToken       string
+	repo               repository.Repository
+	redisRepo          repository.RedisRepository
+	gameService        models.GameService
+	userService        models.UserService
+	lobbyService       models.LobbyService
+	historyService     models.HistoryService
+	txService          models.TransactionService
+	authService        models.AuthService
+	jobService         models.JobService
+	blockchainProvider blockchain.BlockchainProvider
+	jwtSecret          string
+	botToken           string
+}
+
+// ServiceConfig конфигурация для создания сервисов
+type ServiceConfig struct {
+	JWTSecret  string
+	BotToken   string
+	Blockchain config.BlockchainConfig
 }
 
 // NewService создает новый экземпляр Service
 func NewService(repo repository.Repository, redisRepo repository.RedisRepository, jwtSecret, botToken string) Service {
+	return NewServiceWithConfig(repo, redisRepo, ServiceConfig{
+		JWTSecret: jwtSecret,
+		BotToken:  botToken,
+		Blockchain: config.BlockchainConfig{
+			Provider: "mock",
+		},
+	})
+}
+
+// NewServiceWithConfig создает новый экземпляр Service с полной конфигурацией
+func NewServiceWithConfig(repo repository.Repository, redisRepo repository.RedisRepository, cfg ServiceConfig) Service {
 	service := &ServiceImpl{
 		repo:      repo,
 		redisRepo: redisRepo,
-		jwtSecret: jwtSecret,
-		botToken:  botToken,
+		jwtSecret: cfg.JWTSecret,
+		botToken:  cfg.BotToken,
 	}
 
+	// Инициализация блокчейн провайдера
+	service.blockchainProvider = createBlockchainProvider(cfg.Blockchain)
+
 	// Инициализация сервисов - сначала создаем базовые сервисы
-	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User())
+	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User(), service.blockchainProvider)
 	service.txService = txService
 
 	service.userService = NewUserServiceImpl(repo.User(), txService)
@@ -59,7 +87,7 @@ func NewService(repo repository.Repository, redisRepo repository.RedisRepository
 		service.historyService,
 	)
 
-	service.authService = NewAuthService(repo.User(), redisRepo, jwtSecret, botToken)
+	service.authService = NewAuthService(repo.User(), redisRepo, cfg.JWTSecret, cfg.BotToken)
 
 	// Создаем сервис фоновых задач
 	service.jobService = NewJobService(
@@ -70,6 +98,38 @@ func NewService(repo repository.Repository, redisRepo repository.RedisRepository
 	)
 
 	return service
+}
+
+// createBlockchainProvider создает провайдер блокчейна на основе конфигурации
+func createBlockchainProvider(cfg config.BlockchainConfig) blockchain.BlockchainProvider {
+	switch cfg.Provider {
+	case "ton":
+		return ton.NewTonProvider(ton.Config{
+			APIEndpoint:           cfg.TON.APIEndpoint,
+			APIKey:                cfg.TON.APIKey,
+			MasterWallet:          cfg.TON.MasterWallet,
+			MasterWalletSecret:    cfg.TON.MasterWalletSecret,
+			MinWithdrawTON:        cfg.TON.MinWithdrawTON,
+			WithdrawFeeTON:        cfg.TON.WithdrawFeeTON,
+			RequiredConfirmations: cfg.TON.RequiredConfirmations,
+			Testnet:               cfg.TON.Testnet,
+		})
+	case "ethereum", "eth":
+		return ethereum.NewEthereumProvider(ethereum.Config{
+			RPCURL:                cfg.Ethereum.RPCURL,
+			ChainID:               cfg.Ethereum.ChainID,
+			MasterWallet:          cfg.Ethereum.MasterWallet,
+			PrivateKey:            cfg.Ethereum.PrivateKey,
+			MinWithdrawETH:        cfg.Ethereum.MinWithdrawETH,
+			WithdrawFeeETH:        cfg.Ethereum.WithdrawFeeETH,
+			RequiredConfirmations: cfg.Ethereum.RequiredConfirmations,
+			USDTContractAddress:   cfg.Ethereum.USDTContractAddress,
+		})
+	case "mock":
+		fallthrough
+	default:
+		return mock.NewMockProvider(blockchain.NetworkTON, []string{"TON", "USDT"})
+	}
 }
 
 // Game возвращает сервис для работы с играми
@@ -105,6 +165,11 @@ func (s *ServiceImpl) Auth() models.AuthService {
 // Job возвращает сервис для фоновых задач
 func (s *ServiceImpl) Job() models.JobService {
 	return s.jobService
+}
+
+// BlockchainProvider возвращает провайдер блокчейна
+func (s *ServiceImpl) BlockchainProvider() blockchain.BlockchainProvider {
+	return s.blockchainProvider
 }
 
 // Фабричные методы для создания сервисов определены в соответствующих файлах

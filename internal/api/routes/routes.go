@@ -104,6 +104,10 @@ func SetupRouter(
 		private.GET("/transactions/stats", transactionHandler.GetTransactionStats)
 		private.POST("/transactions/deposit", transactionHandler.CreateDepositTransaction)
 		private.POST("/transactions/verify", transactionHandler.VerifyDeposit)
+
+		// Блокчейн операции
+		private.GET("/wallet/address", transactionHandler.GetDepositAddress)
+		private.POST("/wallet/withdraw/prepare", transactionHandler.PrepareWithdraw)
 	}
 
 	return router

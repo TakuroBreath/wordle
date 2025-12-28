@@ -80,7 +80,7 @@ type TransactionService interface {
 	UpdateTransaction(ctx context.Context, transaction *Transaction) error
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
 	GetTransactionsByType(ctx context.Context, transactionType string, limit, offset int) ([]*Transaction, error)
-	GetUserBalance(ctx context.Context, userID uint64 /*, currency string опционально, если хотим баланс конкретной валюты */) (float64, error)
+	GetUserBalance(ctx context.Context, userID uint64) (float64, error)
 	GetTransactionStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
 	ProcessWithdraw(ctx context.Context, userID uint64, amount float64, currency string) error
 	ProcessDeposit(ctx context.Context, userID uint64, amount float64, currency string, txHash string, network string) error
@@ -89,13 +89,13 @@ type TransactionService interface {
 	ConfirmWithdrawal(ctx context.Context, transactionID uuid.UUID) error
 	FailTransaction(ctx context.Context, transactionID uuid.UUID, reason string) error
 
-	// Новые методы для интеграции с блокчейном TON
-	VerifyTonTransaction(ctx context.Context, txHash string) (bool, error)
-	GenerateTonWithdrawTransaction(ctx context.Context, userID uint64, amount float64, walletAddress string) (map[string]interface{}, error)
-	ProcessTonDeposit(ctx context.Context, userID uint64, amount float64, txHash string) error
-	GenerateTonWalletAddress(ctx context.Context, userID uint64) (string, error)
+	// Блокчейн операции (абстрагированы от конкретного блокчейна)
+	VerifyBlockchainTransaction(ctx context.Context, txHash string, network string) (bool, error)
+	GenerateWithdrawTransaction(ctx context.Context, userID uint64, amount float64, currency string, walletAddress string) (map[string]any, error)
+	ProcessBlockchainDeposit(ctx context.Context, userID uint64, amount float64, currency string, txHash string, network string) error
+	GenerateDepositAddress(ctx context.Context, userID uint64, currency string) (string, error)
 	MonitorPendingWithdrawals(ctx context.Context) error
-	IsTonTransactionProcessed(ctx context.Context, hash string) bool
+	IsTransactionProcessed(ctx context.Context, txHash string, network string) bool
 }
 
 // AuthService определяет методы для аутентификации и авторизации пользователей

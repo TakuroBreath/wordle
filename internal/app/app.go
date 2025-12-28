@@ -40,8 +40,13 @@ func New(cfg *config.Config) (*App, error) {
 	repos := postgresql.NewRepository(postgresDB)
 	redisRepos := redis.NewRedisRepository(redisDB)
 
-	// Инициализация сервисов
-	services := service.NewService(repos, redisRepos, cfg.Auth.JWTSecret, cfg.Auth.BotToken)
+	// Инициализация сервисов с конфигурацией блокчейна
+	serviceCfg := service.ServiceConfig{
+		JWTSecret:  cfg.Auth.JWTSecret,
+		BotToken:   cfg.Auth.BotToken,
+		Blockchain: cfg.Blockchain,
+	}
+	services := service.NewServiceWithConfig(repos, redisRepos, serviceCfg)
 	servicesImpl := services.(*service.ServiceImpl)
 
 	// Инициализация сервера

@@ -156,13 +156,16 @@ func (h *UserHandler) GenerateWalletAddress(c *gin.Context) {
 		return
 	}
 
-	walletAddress, err := h.transactionService.GenerateTonWalletAddress(c, userID)
+	// Получаем валюту из параметров (по умолчанию TON)
+	currency := c.DefaultQuery("currency", "TON")
+
+	walletAddress, err := h.transactionService.GenerateDepositAddress(c, userID, currency)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate wallet address"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"wallet_address": walletAddress})
+	c.JSON(http.StatusOK, gin.H{"wallet_address": walletAddress, "currency": currency})
 }
 
 // UpdateUser обновляет данные пользователя
