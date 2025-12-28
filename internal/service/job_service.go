@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
 	"github.com/tonkeeper/tonapi-go"
@@ -18,6 +19,7 @@ type JobServiceImpl struct {
 	transactionService models.TransactionService
 	gameService        models.GameService
 	userService        models.UserService
+	blockchainProvider blockchain.BlockchainProvider
 	tonapiClient       *tonapi.Client
 }
 
@@ -30,9 +32,15 @@ func NewJobService(
 ) models.JobService {
 	token := os.Getenv("TONAPI_KEY")
 
-	client, err := tonapi.NewClient(tonapi.TonApiURL, tonapi.WithToken(token))
-	if err != nil {
-		log.Fatalf("Failed to create TONAPI client: %v", err)
+	var client *tonapi.Client
+	var err error
+	
+	// Создаём клиент только если токен указан
+	if token != "" {
+		client, err = tonapi.NewClient(tonapi.TonApiURL, tonapi.WithToken(token))
+		if err != nil {
+			log.Printf("WARNING: Failed to create TONAPI client: %v", err)
+		}
 	}
 
 	return &JobServiceImpl{
@@ -42,6 +50,19 @@ func NewJobService(
 		userService:        userService,
 		tonapiClient:       client,
 	}
+}
+
+// NewJobServiceWithBlockchain создает JobService с поддержкой блокчейн провайдера
+func NewJobServiceWithBlockchain(
+	lobbyService models.LobbyService,
+	transactionService models.TransactionService,
+	gameService models.GameService,
+	userService models.UserService,
+	blockchainProvider blockchain.BlockchainProvider,
+) models.JobService {
+	service := NewJobService(lobbyService, transactionService, gameService, userService).(*JobServiceImpl)
+	service.blockchainProvider = blockchainProvider
+	return service
 }
 
 // ProcessExpiredLobbies обрабатывает истекшие лобби
@@ -83,6 +104,11 @@ func (s *JobServiceImpl) ProcessPendingTransactions(ctx context.Context) error {
 
 // MonitorWalletTransactions отслеживает транзакции кошелька и активирует неактивные игры
 func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
+	// Если клиент не инициализирован, пропускаем
+	if s.tonapiClient == nil {
+		return nil
+	}
+
 	transactions, err := s.tonapiClient.GetBlockchainAccountTransactions(context.Background(), tonapi.GetBlockchainAccountTransactionsParams{
 		AccountID: "UQC9L3EkJxGMEYKCOhN3KQGCLh1i51ohTpO1NV21BbMHxTyE",
 		Limit:     tonapi.NewOptInt32(10),
@@ -92,33 +118,48 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 	}
 
 	for _, transaction := range transactions.Transactions {
-		if s.transactionService.IsTonTransactionProcessed(ctx, transaction.Hash) {
+		// Используем новый интерфейс для проверки обработанности транзакции
+		if s.transactionService.IsTransactionProcessed(ctx, transaction.Hash, "TON") {
 			continue
 		}
 		
 		if transaction.InMsg.Value.DecodedBody.String() != "" {
 			comment := transaction.InMsg.Value.DecodedBody.String()
-			game, err := s.gameService.GetGame(ctx, uuid.MustParse(comment))
+			
+			// Пробуем распарсить comment как UUID игры
+			gameID, parseErr := uuid.Parse(comment)
+			if parseErr != nil {
+				// Комментарий не является UUID игры, пропускаем
+				continue
+			}
+			
+			game, err := s.gameService.GetGame(ctx, gameID)
 			if err != nil {
-				return fmt.Errorf("failed to get game: %w", err)
+				fmt.Printf("WARNING: Failed to get game %s: %v\n", gameID, err)
+				continue
 			}
 
 			if game.Status == models.GameStatusInactive {
 				err = s.gameService.ActivateGame(ctx, game.ID)
 				if err != nil {
-					return fmt.Errorf("failed to activate game: %w", err)
+					fmt.Printf("WARNING: Failed to activate game %s: %v\n", game.ID, err)
+					continue
 				}
 			}
-			amount := min(float64(transaction.InMsg.Value.Value) / 1000000000, game.MaxBet * game.RewardMultiplier)
+			
+			amount := min(float64(transaction.InMsg.Value.Value)/1000000000, game.MaxBet*game.RewardMultiplier)
 
 			err = s.gameService.AddToRewardPool(ctx, game.ID, amount)
 			if err != nil {
-				return fmt.Errorf("failed to add to reward pool: %w", err)
+				fmt.Printf("WARNING: Failed to add to reward pool for game %s: %v\n", game.ID, err)
+				continue
 			}
 
-			err = s.transactionService.ProcessTonDeposit(ctx, game.CreatorID, amount, transaction.Hash)
+			// Используем новый интерфейс для обработки депозита
+			err = s.transactionService.ProcessBlockchainDeposit(ctx, game.CreatorID, amount, models.CurrencyTON, transaction.Hash, "TON")
 			if err != nil {
-				return fmt.Errorf("failed to process ton deposit: %w", err)
+				fmt.Printf("WARNING: Failed to process deposit for game %s: %v\n", game.ID, err)
+				continue
 			}
 		}
 	}

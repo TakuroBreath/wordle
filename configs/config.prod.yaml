@@ -1,0 +1,62 @@
+# Production конфигурация Wordle Betting
+# Заполните свои данные и запустите
+
+environment: prod
+network: ton
+use_mock_provider: false
+
+http:
+  port: "8080"
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 120s
+
+postgres:
+  host: localhost
+  port: "5432"
+  user: postgres
+  password: postgres
+  db_name: wordle
+  ssl_mode: disable
+
+redis:
+  host: localhost
+  port: "6379"
+  password: ""
+  db: 0
+
+auth:
+  enabled: true
+  jwt_secret: your_super_secret_jwt_key_here_change_me
+  bot_token: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"  # Ваш Telegram Bot Token
+  token_ttl: 24h
+
+metrics:
+  enabled: true
+  port: "9090"
+
+logging:
+  level: info
+  format: json
+  output: stdout
+
+blockchain:
+  ton:
+    api_endpoint: https://toncenter.com/api/v2
+    api_key: "your_tonapi_key_here"
+    master_wallet: "EQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    master_wallet_secret: "your_wallet_secret"
+    min_withdraw: 0.5
+    withdraw_fee: 0.05
+    required_confirmations: 1
+    testnet: false
+
+  ethereum:
+    rpc_url: "https://mainnet.infura.io/v3/your_key"
+    chain_id: 1
+    master_wallet: "0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    private_key: "your_private_key"
+    min_withdraw: 0.01
+    withdraw_fee: 0.005
+    required_confirmations: 12
+    usdt_contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7"

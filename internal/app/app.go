@@ -40,8 +40,15 @@ func New(cfg *config.Config) (*App, error) {
 	repos := postgresql.NewRepository(postgresDB)
 	redisRepos := redis.NewRedisRepository(redisDB)
 
-	// Инициализация сервисов
-	services := service.NewService(repos, redisRepos, cfg.Auth.JWTSecret, cfg.Auth.BotToken)
+	// Инициализация сервисов с полной конфигурацией
+	serviceCfg := service.ServiceConfig{
+		JWTSecret:       cfg.Auth.JWTSecret,
+		BotToken:        cfg.Auth.BotToken,
+		Network:         string(cfg.Network),
+		UseMockProvider: cfg.UseMockProvider,
+		Blockchain:      cfg.Blockchain,
+	}
+	services := service.NewServiceWithConfig(repos, redisRepos, serviceCfg)
 	servicesImpl := services.(*service.ServiceImpl)
 
 	// Инициализация сервера
@@ -51,6 +58,7 @@ func New(cfg *config.Config) (*App, error) {
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 		BotToken:     cfg.Auth.BotToken,
+		AuthEnabled:  cfg.IsAuthEnabled(),
 	}
 	httpServer := server.NewServer(serverConfig, servicesImpl)
 
@@ -65,6 +73,11 @@ func New(cfg *config.Config) (*App, error) {
 
 // Run запускает приложение
 func (a *App) Run() error {
+	// Логируем конфигурацию
+	log.Printf("Starting application with config: %s", a.cfg.String())
+	log.Printf("Environment: %s, Network: %s, Auth enabled: %v, Mock provider: %v",
+		a.cfg.Environment, a.cfg.Network, a.cfg.IsAuthEnabled(), a.cfg.UseMockProvider)
+
 	// Инициализация OpenTelemetry
 	cleanup := otel.InitTracer()
 	defer cleanup(context.Background())

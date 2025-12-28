@@ -290,7 +290,8 @@ func (h *TransactionHandler) VerifyDeposit(c *gin.Context) {
 	}
 
 	var input struct {
-		TxHash string `json:"tx_hash" binding:"required"`
+		TxHash  string `json:"tx_hash" binding:"required"`
+		Network string `json:"network" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -299,7 +300,7 @@ func (h *TransactionHandler) VerifyDeposit(c *gin.Context) {
 	}
 
 	// Проверяем транзакцию в блокчейне
-	verified, err := h.transactionService.VerifyTonTransaction(c, input.TxHash)
+	verified, err := h.transactionService.VerifyBlockchainTransaction(c, input.TxHash, input.Network)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -314,4 +315,54 @@ func (h *TransactionHandler) VerifyDeposit(c *gin.Context) {
 		"verified": true,
 		"message":  "Transaction verified successfully. Your balance will be updated soon.",
 	})
+}
+
+// GetDepositAddress получает адрес для депозита
+func (h *TransactionHandler) GetDepositAddress(c *gin.Context) {
+	userID, exists := middleware.GetCurrentUserID(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		return
+	}
+
+	currency := c.DefaultQuery("currency", "TON")
+
+	address, err := h.transactionService.GenerateDepositAddress(c, userID, currency)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"address":  address,
+		"currency": currency,
+	})
+}
+
+// PrepareWithdraw подготавливает данные для вывода
+func (h *TransactionHandler) PrepareWithdraw(c *gin.Context) {
+	userID, exists := middleware.GetCurrentUserID(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		return
+	}
+
+	var input struct {
+		Amount   float64 `json:"amount" binding:"required,gt=0"`
+		Currency string  `json:"currency" binding:"required"`
+		Wallet   string  `json:"wallet" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	txData, err := h.transactionService.GenerateWithdrawTransaction(c, userID, input.Amount, input.Currency, input.Wallet)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, txData)
 }

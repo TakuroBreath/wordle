@@ -1,2 +1,22 @@
 .cursor
 node_modules/
+
+# Symlink to config
+config.yaml
+
+# Binary
+wordle
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local

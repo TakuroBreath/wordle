@@ -1,0 +1,62 @@
+# Development конфигурация Wordle Betting
+# Просто запустите: go run cmd/api/main.go
+
+environment: dev
+network: ton
+use_mock_provider: true
+
+http:
+  port: "8080"
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+postgres:
+  host: localhost
+  port: "5432"
+  user: postgres
+  password: postgres
+  db_name: wordle
+  ssl_mode: disable
+
+redis:
+  host: localhost
+  port: "6379"
+  password: ""
+  db: 0
+
+auth:
+  enabled: false
+  jwt_secret: dev_secret_key_12345
+  bot_token: ""
+  token_ttl: 24h
+
+metrics:
+  enabled: false
+  port: "9090"
+
+logging:
+  level: debug
+  format: console
+  output: stdout
+
+blockchain:
+  ton:
+    api_endpoint: https://testnet.toncenter.com/api/v2
+    api_key: ""
+    master_wallet: ""
+    master_wallet_secret: ""
+    min_withdraw: 0.1
+    withdraw_fee: 0.01
+    required_confirmations: 1
+    testnet: true
+
+  ethereum:
+    rpc_url: ""
+    chain_id: 11155111
+    master_wallet: ""
+    private_key: ""
+    min_withdraw: 0.01
+    withdraw_fee: 0.001
+    required_confirmations: 3
+    usdt_contract: ""

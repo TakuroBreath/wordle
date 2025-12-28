@@ -6,32 +6,34 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
 )
 
 // TransactionServiceImpl представляет собой реализацию TransactionService
 type TransactionServiceImpl struct {
-	transactionRepo models.TransactionRepository
-	userRepo        models.UserRepository
-	// Если потребуется оповещать другие сервисы или выполнять доп. действия,
-	// можно добавить сюда другие репозитории или сервисы
-}
-
-// IsTonTransactionProcessed implements models.TransactionService.
-func (s *TransactionServiceImpl) IsTonTransactionProcessed(ctx context.Context, hash string) bool {
-	panic("unimplemented")
+	transactionRepo    models.TransactionRepository
+	userRepo           models.UserRepository
+	blockchainProvider blockchain.BlockchainProvider
 }
 
 // NewTransactionServiceImpl создает новый экземпляр TransactionServiceImpl
 func NewTransactionServiceImpl(
 	transactionRepo models.TransactionRepository,
 	userRepo models.UserRepository,
-) models.TransactionService { // Убедитесь, что models.TransactionService определен
+	blockchainProvider blockchain.BlockchainProvider,
+) models.TransactionService {
 	return &TransactionServiceImpl{
-		transactionRepo: transactionRepo,
-		userRepo:        userRepo,
+		transactionRepo:    transactionRepo,
+		userRepo:           userRepo,
+		blockchainProvider: blockchainProvider,
 	}
+}
+
+// SetBlockchainProvider устанавливает провайдер блокчейна (для отложенной инициализации)
+func (s *TransactionServiceImpl) SetBlockchainProvider(provider blockchain.BlockchainProvider) {
+	s.blockchainProvider = provider
 }
 
 // CreateTransaction создает новую транзакцию
@@ -590,26 +592,26 @@ func (s *TransactionServiceImpl) FailTransaction(ctx context.Context, transactio
 	return nil
 }
 
-// VerifyTonTransaction проверяет транзакцию TON в блокчейне
-func (s *TransactionServiceImpl) VerifyTonTransaction(ctx context.Context, txHash string) (bool, error) {
+// VerifyBlockchainTransaction проверяет транзакцию в блокчейне
+func (s *TransactionServiceImpl) VerifyBlockchainTransaction(ctx context.Context, txHash string, network string) (bool, error) {
 	if txHash == "" {
 		return false, errors.New("transaction hash cannot be empty")
 	}
 
-	// TODO: Реализовать проверку транзакции в блокчейне TON через API или SDK
-	// Псевдокод:
-	// 1. Подключиться к ноде TON
-	// 2. Получить информацию о транзакции по хэшу
-	// 3. Проверить статус и другие параметры транзакции
-	// 4. Вернуть true, если транзакция подтверждена
+	if s.blockchainProvider == nil {
+		return false, errors.New("blockchain provider not configured")
+	}
 
-	// Пример заглушки для разработки
-	fmt.Printf("Verifying TON transaction: %s\n", txHash)
-	return true, nil
+	txInfo, err := s.blockchainProvider.VerifyTransaction(ctx, txHash)
+	if err != nil {
+		return false, fmt.Errorf("failed to verify transaction: %w", err)
+	}
+
+	return txInfo.Status == blockchain.TxStatusConfirmed, nil
 }
 
-// GenerateTonWithdrawTransaction генерирует данные для транзакции вывода TON
-func (s *TransactionServiceImpl) GenerateTonWithdrawTransaction(ctx context.Context, userID uint64, amount float64, walletAddress string) (map[string]interface{}, error) {
+// GenerateWithdrawTransaction генерирует данные для транзакции вывода
+func (s *TransactionServiceImpl) GenerateWithdrawTransaction(ctx context.Context, userID uint64, amount float64, currency string, walletAddress string) (map[string]any, error) {
 	if userID == 0 {
 		return nil, errors.New("user ID cannot be zero")
 	}
@@ -620,34 +622,58 @@ func (s *TransactionServiceImpl) GenerateTonWithdrawTransaction(ctx context.Cont
 		return nil, errors.New("wallet address cannot be empty")
 	}
 
+	if s.blockchainProvider == nil {
+		return nil, errors.New("blockchain provider not configured")
+	}
+
 	// Проверяем существование пользователя
 	user, err := s.userRepo.GetByTelegramID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// TODO: Генерация данных для транзакции TON
-	// Псевдокод:
-	// 1. Сформировать данные транзакции (получатель, сумма, комментарий)
-	// 2. Подготовить данные для отправки на клиент или для подписи
+	// Валидируем адрес через провайдер
+	valid, err := s.blockchainProvider.ValidateAddress(ctx, walletAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate address: %w", err)
+	}
+	if !valid {
+		return nil, errors.New("invalid wallet address")
+	}
 
-	// Пример ответа с данными транзакции
-	transactionData := map[string]interface{}{
+	// Получаем комиссию
+	fee := s.blockchainProvider.GetWithdrawFee(currency, amount)
+	minAmount := s.blockchainProvider.GetMinWithdrawAmount(currency)
+
+	if amount < minAmount {
+		return nil, fmt.Errorf("minimum withdraw amount is %.4f %s", minAmount, currency)
+	}
+
+	// Получаем баланс
+	var userBalance float64
+	if currency == models.CurrencyTON {
+		userBalance = user.BalanceTon
+	} else if currency == models.CurrencyUSDT {
+		userBalance = user.BalanceUsdt
+	}
+
+	transactionData := map[string]any{
 		"user_id":        userID,
 		"wallet":         walletAddress,
 		"amount":         amount,
-		"currency":       models.CurrencyTON,
-		"network":        "TON",
-		"user_balance":   user.BalanceTon,
+		"currency":       currency,
+		"network":        string(s.blockchainProvider.GetNetwork()),
+		"user_balance":   userBalance,
 		"transaction_id": uuid.New().String(),
-		// Другие данные, необходимые для фронтенда
+		"fee":            fee,
+		"min_amount":     minAmount,
 	}
 
 	return transactionData, nil
 }
 
-// ProcessTonDeposit обрабатывает депозит TON
-func (s *TransactionServiceImpl) ProcessTonDeposit(ctx context.Context, userID uint64, amount float64, txHash string) error {
+// ProcessBlockchainDeposit обрабатывает депозит из блокчейна
+func (s *TransactionServiceImpl) ProcessBlockchainDeposit(ctx context.Context, userID uint64, amount float64, currency string, txHash string, network string) error {
 	if userID == 0 {
 		return errors.New("user ID cannot be zero")
 	}
@@ -658,13 +684,26 @@ func (s *TransactionServiceImpl) ProcessTonDeposit(ctx context.Context, userID u
 		return errors.New("transaction hash cannot be empty")
 	}
 
-	// Проверяем транзакцию в блокчейне
-	verified, err := s.VerifyTonTransaction(ctx, txHash)
-	if err != nil {
-		return fmt.Errorf("failed to verify TON transaction: %w", err)
+	if s.blockchainProvider == nil {
+		return errors.New("blockchain provider not configured")
 	}
-	if !verified {
-		return errors.New("TON transaction verification failed")
+
+	// Проверяем, не была ли транзакция уже обработана
+	processed, err := s.blockchainProvider.IsTransactionProcessed(ctx, txHash)
+	if err != nil {
+		return fmt.Errorf("failed to check if transaction is processed: %w", err)
+	}
+	if processed {
+		return errors.New("transaction already processed")
+	}
+
+	// Проверяем транзакцию в блокчейне
+	txInfo, err := s.blockchainProvider.VerifyTransaction(ctx, txHash)
+	if err != nil {
+		return fmt.Errorf("failed to verify blockchain transaction: %w", err)
+	}
+	if txInfo.Status != blockchain.TxStatusConfirmed {
+		return fmt.Errorf("transaction not confirmed, status: %s", txInfo.Status)
 	}
 
 	// Создаем новую транзакцию депозита
@@ -673,11 +712,11 @@ func (s *TransactionServiceImpl) ProcessTonDeposit(ctx context.Context, userID u
 		UserID:      userID,
 		Type:        models.TransactionTypeDeposit,
 		Amount:      amount,
-		Currency:    models.CurrencyTON,
+		Currency:    currency,
 		Status:      models.TransactionStatusCompleted,
 		TxHash:      txHash,
-		Network:     "TON",
-		Description: fmt.Sprintf("TON deposit of %.6f", amount),
+		Network:     network,
+		Description: fmt.Sprintf("%s deposit of %.6f %s", network, amount, currency),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -688,23 +727,36 @@ func (s *TransactionServiceImpl) ProcessTonDeposit(ctx context.Context, userID u
 	}
 
 	// Обновляем баланс пользователя
-	if err := s.userRepo.UpdateTonBalance(ctx, userID, amount); err != nil {
+	var balanceErr error
+	if currency == models.CurrencyTON {
+		balanceErr = s.userRepo.UpdateTonBalance(ctx, userID, amount)
+	} else if currency == models.CurrencyUSDT {
+		balanceErr = s.userRepo.UpdateUsdtBalance(ctx, userID, amount)
+	} else {
+		balanceErr = fmt.Errorf("unsupported currency: %s", currency)
+	}
+
+	if balanceErr != nil {
 		// Если не удалось обновить баланс, отмечаем транзакцию как неуспешную
-		errorMsg := fmt.Sprintf("Failed to update user balance: %v", err)
+		errorMsg := fmt.Sprintf("Failed to update user balance: %v", balanceErr)
 		failErr := s.FailTransaction(ctx, tx.ID, errorMsg)
 		if failErr != nil {
 			fmt.Printf("ERROR: Failed to mark transaction %s as failed: %v\n", tx.ID, failErr)
 		}
-		return fmt.Errorf("failed to update TON balance: %w", err)
+		return fmt.Errorf("failed to update %s balance: %w", currency, balanceErr)
 	}
 
 	return nil
 }
 
-// GenerateTonWalletAddress генерирует адрес TON кошелька для депозита
-func (s *TransactionServiceImpl) GenerateTonWalletAddress(ctx context.Context, userID uint64) (string, error) {
+// GenerateDepositAddress генерирует адрес кошелька для депозита
+func (s *TransactionServiceImpl) GenerateDepositAddress(ctx context.Context, userID uint64, currency string) (string, error) {
 	if userID == 0 {
 		return "", errors.New("user ID cannot be zero")
+	}
+
+	if s.blockchainProvider == nil {
+		return "", errors.New("blockchain provider not configured")
 	}
 
 	// Проверяем существование пользователя
@@ -718,23 +770,27 @@ func (s *TransactionServiceImpl) GenerateTonWalletAddress(ctx context.Context, u
 		return user.Wallet, nil
 	}
 
-	// TODO: Интеграция с сервисом кошельков TON для генерации адреса
-	// Здесь должна быть реальная логика генерации или получения адреса
-
-	// Пример для разработки
-	generatedWallet := fmt.Sprintf("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ%d", userID)
+	// Генерируем адрес через провайдер
+	depositAddr, err := s.blockchainProvider.GenerateDepositAddress(ctx, userID, currency)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate deposit address: %w", err)
+	}
 
 	// Обновляем адрес кошелька пользователя
-	user.Wallet = generatedWallet
+	user.Wallet = depositAddr.Address
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return "", fmt.Errorf("failed to update user wallet address: %w", err)
 	}
 
-	return generatedWallet, nil
+	return depositAddr.Address, nil
 }
 
 // MonitorPendingWithdrawals отслеживает и обрабатывает отложенные выводы средств
 func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) error {
+	if s.blockchainProvider == nil {
+		return errors.New("blockchain provider not configured")
+	}
+
 	// Получаем отложенные транзакции вывода
 	pendingWithdrawals, err := s.transactionRepo.GetByType(ctx, models.TransactionTypeWithdraw, 1000, 0)
 	if err != nil {
@@ -746,15 +802,64 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 			continue
 		}
 
-		// Здесь должна быть логика обработки вывода средств:
-		// 1. Проверка статуса в блокчейне или внешней системе
-		// 2. Обновление статуса транзакции
-		// 3. Обновление баланса пользователя, если необходимо
+		// Если есть хеш транзакции, проверяем статус в блокчейне
+		if tx.TxHash != "" {
+			status, err := s.blockchainProvider.GetTransactionStatus(ctx, tx.TxHash)
+			if err != nil {
+				fmt.Printf("ERROR: Failed to get transaction status for %s: %v\n", tx.TxHash, err)
+				continue
+			}
 
-		// Для примера просто логируем
-		fmt.Printf("Monitoring pending withdrawal: %s, amount: %.6f %s\n",
-			tx.ID, tx.Amount, tx.Currency)
+			switch status {
+			case blockchain.TxStatusConfirmed:
+				// Транзакция подтверждена
+				tx.Status = models.TransactionStatusCompleted
+				tx.UpdatedAt = time.Now()
+				if err := s.transactionRepo.Update(ctx, tx); err != nil {
+					fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
+				}
+			case blockchain.TxStatusFailed:
+				// Транзакция провалилась - возвращаем средства
+				tx.Status = models.TransactionStatusFailed
+				tx.UpdatedAt = time.Now()
+				if err := s.transactionRepo.Update(ctx, tx); err != nil {
+					fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
+				}
+				// Возвращаем средства пользователю
+				if tx.Currency == models.CurrencyTON {
+					_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
+				} else if tx.Currency == models.CurrencyUSDT {
+					_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+				}
+			default:
+				// Транзакция все еще pending
+				fmt.Printf("Monitoring pending withdrawal: %s, amount: %.6f %s, status: %s\n",
+					tx.ID, tx.Amount, tx.Currency, status)
+			}
+		} else {
+			fmt.Printf("Pending withdrawal without tx hash: %s, amount: %.6f %s\n",
+				tx.ID, tx.Amount, tx.Currency)
+		}
 	}
 
 	return nil
+}
+
+// IsTransactionProcessed проверяет, была ли транзакция уже обработана
+func (s *TransactionServiceImpl) IsTransactionProcessed(ctx context.Context, txHash string, network string) bool {
+	if txHash == "" {
+		return false
+	}
+
+	if s.blockchainProvider == nil {
+		return false
+	}
+
+	processed, err := s.blockchainProvider.IsTransactionProcessed(ctx, txHash)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to check if transaction %s is processed: %v\n", txHash, err)
+		return false
+	}
+
+	return processed
 }

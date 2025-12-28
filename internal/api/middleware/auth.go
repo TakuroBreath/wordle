@@ -20,19 +20,46 @@ const (
 	_userKey     contextKey = "user"
 )
 
+// AuthConfig конфигурация авторизации
+type AuthConfig struct {
+	Enabled      bool
+	BotToken     string
+	DefaultUser  *models.User // Пользователь по умолчанию для dev режима
+}
+
 // AuthMiddleware представляет middleware для аутентификации
 type AuthMiddleware struct {
 	authService models.AuthService
-	botToken    string
+	config      AuthConfig
 	logger      *zap.Logger
 }
 
 // NewAuthMiddleware создает новый middleware для аутентификации
 func NewAuthMiddleware(authService models.AuthService, botToken string) *AuthMiddleware {
+	return NewAuthMiddlewareWithConfig(authService, AuthConfig{
+		Enabled:  true,
+		BotToken: botToken,
+	})
+}
+
+// NewAuthMiddlewareWithConfig создает новый middleware с полной конфигурацией
+func NewAuthMiddlewareWithConfig(authService models.AuthService, config AuthConfig) *AuthMiddleware {
 	return &AuthMiddleware{
 		authService: authService,
-		botToken:    botToken,
+		config:      config,
 		logger:      logger.GetLogger(zap.String("middleware", "auth")),
+	}
+}
+
+// DefaultDevUser возвращает пользователя по умолчанию для dev режима
+func DefaultDevUser() *models.User {
+	return &models.User{
+		TelegramID:  12345678,
+		Username:    "dev_user",
+		FirstName:   "Dev",
+		LastName:    "User",
+		BalanceTon:  100.0,
+		BalanceUsdt: 100.0,
 	}
 }
 
@@ -56,6 +83,19 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			zap.String("path", c.Request.URL.Path),
 			zap.String("method", c.Request.Method),
 		)
+
+		// Если авторизация отключена, используем dev пользователя
+		if !m.config.Enabled {
+			log.Debug("Auth disabled, using default user")
+			user := m.config.DefaultUser
+			if user == nil {
+				user = DefaultDevUser()
+			}
+			c.Set("user", user)
+			c.Next()
+			return
+		}
+
 		log.Info("Checking authentication")
 
 		// Получаем токен из заголовка
@@ -103,7 +143,7 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			log.Debug("Processing TMA token", zap.Int("init_data_length", len(tokenString)))
 
 			// Валидируем данные Telegram Mini App
-			if err := initdata.Validate(tokenString, m.botToken, time.Hour); err != nil {
+			if err := initdata.Validate(tokenString, m.config.BotToken, time.Hour); err != nil {
 				log.Error("Invalid Telegram Mini App data", zap.Error(err))
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid telegram mini app data"})
 				c.Abort()
@@ -143,6 +183,73 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 		c.Set("user", user)
 		c.Next()
 	}
+}
+
+// OptionalAuth проверяет авторизацию, но не требует её
+// Если пользователь авторизован - добавляет его в контекст
+// Если нет - продолжает без пользователя
+func (m *AuthMiddleware) OptionalAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log := logger.GetLogger(
+			zap.String("middleware", "auth"),
+			zap.String("handler", "OptionalAuth"),
+		)
+
+		// Если авторизация отключена, используем dev пользователя
+		if !m.config.Enabled {
+			user := m.config.DefaultUser
+			if user == nil {
+				user = DefaultDevUser()
+			}
+			c.Set("user", user)
+			c.Next()
+			return
+		}
+
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			// Нет авторизации - продолжаем без пользователя
+			c.Next()
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 {
+			c.Next()
+			return
+		}
+
+		authType := parts[0]
+		tokenString := parts[1]
+
+		var user *models.User
+		var err error
+
+		switch authType {
+		case "Bearer":
+			user, err = m.authService.VerifyAuth(c, tokenString)
+		case "tma":
+			if verr := initdata.Validate(tokenString, m.config.BotToken, time.Hour); verr == nil {
+				jwtToken, jerr := m.authService.InitAuth(c, tokenString)
+				if jerr == nil {
+					user, err = m.authService.VerifyAuth(c, jwtToken)
+				}
+			}
+		}
+
+		if err == nil && user != nil {
+			log.Debug("Optional auth: user authenticated",
+				zap.Uint64("telegram_id", user.TelegramID))
+			c.Set("user", user)
+		}
+
+		c.Next()
+	}
+}
+
+// IsAuthEnabled возвращает, включена ли авторизация
+func (m *AuthMiddleware) IsAuthEnabled() bool {
+	return m.config.Enabled
 }
 
 // GetCurrentUser возвращает текущего пользователя из контекста
