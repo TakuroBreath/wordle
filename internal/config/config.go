@@ -94,11 +94,17 @@ type TONConfig struct {
 	APIEndpoint           string  `yaml:"api_endpoint"`
 	APIKey                string  `yaml:"api_key"`
 	MasterWallet          string  `yaml:"master_wallet"`
-	MasterWalletSecret    string  `yaml:"master_wallet_secret"`
-	MinWithdrawTON        float64 `yaml:"min_withdraw"`
-	WithdrawFeeTON        float64 `yaml:"withdraw_fee"`
+	MasterWalletSeed      string  `yaml:"master_wallet_seed"`      // 24 слова seed фразы
+	MasterWalletSecret    string  `yaml:"master_wallet_secret"`    // Deprecated: используй master_wallet_seed
+	MinWithdrawTON        float64 `yaml:"min_withdraw_ton"`
+	MinWithdrawUSDT       float64 `yaml:"min_withdraw_usdt"`
+	WithdrawFeeTON        float64 `yaml:"withdraw_fee_ton"`
+	WithdrawFeeUSDT       float64 `yaml:"withdraw_fee_usdt"`
 	RequiredConfirmations int     `yaml:"required_confirmations"`
 	Testnet               bool    `yaml:"testnet"`
+	USDTMasterAddress     string  `yaml:"usdt_master_address"`     // Адрес USDT Jetton контракта
+	WorkerPollInterval    int     `yaml:"worker_poll_interval"`    // Интервал опроса воркера в секундах
+	CommissionRate        float64 `yaml:"commission_rate"`         // Комиссия сервиса (0.05 = 5%)
 }
 
 // EthereumConfig конфигурация для Ethereum блокчейна

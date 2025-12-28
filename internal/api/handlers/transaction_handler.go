@@ -291,7 +291,6 @@ func (h *TransactionHandler) VerifyDeposit(c *gin.Context) {
 
 	var input struct {
 		TxHash  string `json:"tx_hash" binding:"required"`
-		Network string `json:"network" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -299,27 +298,28 @@ func (h *TransactionHandler) VerifyDeposit(c *gin.Context) {
 		return
 	}
 
-	// Проверяем транзакцию в блокчейне
-	verified, err := h.transactionService.VerifyBlockchainTransaction(c, input.TxHash, input.Network)
+	// Проверяем, существует ли транзакция в нашей базе
+	tx, err := h.transactionService.GetTransactionByTxHash(c, input.TxHash)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if !verified {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "transaction not verified"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"verified": false,
+			"message":  "Transaction not found. It may still be processing.",
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"verified": true,
-		"message":  "Transaction verified successfully. Your balance will be updated soon.",
+		"verified":   tx.Status == "completed",
+		"status":     tx.Status,
+		"amount":     tx.Amount,
+		"currency":   tx.Currency,
+		"message":    "Transaction found",
 	})
 }
 
 // GetDepositAddress получает адрес для депозита
 func (h *TransactionHandler) GetDepositAddress(c *gin.Context) {
-	userID, exists := middleware.GetCurrentUserID(c)
+	_, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
@@ -327,15 +327,12 @@ func (h *TransactionHandler) GetDepositAddress(c *gin.Context) {
 
 	currency := c.DefaultQuery("currency", "TON")
 
-	address, err := h.transactionService.GenerateDepositAddress(c, userID, currency)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
+	// Возвращаем адрес мастер-кошелька
+	// В реальной реализации адрес берётся из TON сервиса
 	c.JSON(http.StatusOK, gin.H{
-		"address":  address,
+		"address":  "", // Будет заполняться из TON сервиса
 		"currency": currency,
+		"message":  "Use /api/v1/users/deposit for deposit information",
 	})
 }
 
@@ -358,11 +355,20 @@ func (h *TransactionHandler) PrepareWithdraw(c *gin.Context) {
 		return
 	}
 
-	txData, err := h.transactionService.GenerateWithdrawTransaction(c, userID, input.Amount, input.Currency, input.Wallet)
+	// Создаём транзакцию вывода
+	tx, err := h.transactionService.ProcessWithdraw(c, userID, input.Amount, input.Currency, input.Wallet)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, txData)
+	c.JSON(http.StatusOK, gin.H{
+		"transaction_id": tx.ID,
+		"status":         tx.Status,
+		"amount":         tx.Amount,
+		"fee":            tx.Fee,
+		"net_amount":     tx.Amount - tx.Fee,
+		"currency":       tx.Currency,
+		"to_address":     tx.ToAddress,
+	})
 }

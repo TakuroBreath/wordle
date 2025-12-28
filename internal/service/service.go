@@ -20,6 +20,7 @@ type Service interface {
 	Auth() models.AuthService
 	Job() models.JobService
 	BlockchainProvider() blockchain.BlockchainProvider
+	TONService() models.TONService
 }
 
 // ServiceImpl представляет собой реализацию сервисного слоя
@@ -34,8 +35,10 @@ type ServiceImpl struct {
 	authService        models.AuthService
 	jobService         models.JobService
 	blockchainProvider blockchain.BlockchainProvider
+	tonService         models.TONService
 	jwtSecret          string
 	botToken           string
+	commissionRate     float64
 }
 
 // ServiceConfig конфигурация для создания сервисов
@@ -44,6 +47,7 @@ type ServiceConfig struct {
 	BotToken        string
 	Network         string // "ton" или "evm"
 	UseMockProvider bool
+	CommissionRate  float64 // Ставка комиссии (по умолчанию 0.05 = 5%)
 	Blockchain      config.BlockchainConfig
 }
 
@@ -59,22 +63,34 @@ func NewService(repo repository.Repository, redisRepo repository.RedisRepository
 
 // NewServiceWithConfig создает новый экземпляр Service с полной конфигурацией
 func NewServiceWithConfig(repo repository.Repository, redisRepo repository.RedisRepository, cfg ServiceConfig) Service {
+	// Установка ставки комиссии по умолчанию
+	commissionRate := cfg.CommissionRate
+	if commissionRate <= 0 {
+		commissionRate = 0.05 // 5% по умолчанию
+	}
+
 	service := &ServiceImpl{
-		repo:      repo,
-		redisRepo: redisRepo,
-		jwtSecret: cfg.JWTSecret,
-		botToken:  cfg.BotToken,
+		repo:           repo,
+		redisRepo:      redisRepo,
+		jwtSecret:      cfg.JWTSecret,
+		botToken:       cfg.BotToken,
+		commissionRate: commissionRate,
 	}
 
 	// Инициализация блокчейн провайдера
 	service.blockchainProvider = createBlockchainProviderWithNetwork(cfg.Network, cfg.UseMockProvider, cfg.Blockchain)
+
+	// Инициализация TON сервиса (может быть nil при использовании mock)
+	// TON сервис создается отдельно и может быть передан извне при необходимости
+	var tonService models.TONService = nil
+	service.tonService = tonService
 
 	// Инициализация сервисов - сначала создаем базовые сервисы
 	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User(), service.blockchainProvider)
 	service.txService = txService
 
 	service.userService = NewUserServiceImpl(repo.User(), txService)
-	service.gameService = NewGameService(repo.Game(), redisRepo, service.userService)
+	service.gameService = NewGameService(repo.Game(), redisRepo, service.userService, tonService, commissionRate)
 	service.historyService = NewHistoryService(repo.History(), repo.Game(), repo.User(), repo.Lobby())
 
 	// Создаем лобби-сервис с зависимостями
@@ -86,6 +102,8 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 		service.userService,
 		txService,
 		service.historyService,
+		tonService,
+		commissionRate,
 	)
 
 	service.authService = NewAuthService(repo.User(), redisRepo, cfg.JWTSecret, cfg.BotToken)
@@ -184,6 +202,11 @@ func (s *ServiceImpl) Job() models.JobService {
 // BlockchainProvider возвращает провайдер блокчейна
 func (s *ServiceImpl) BlockchainProvider() blockchain.BlockchainProvider {
 	return s.blockchainProvider
+}
+
+// TONService возвращает сервис для работы с TON
+func (s *ServiceImpl) TONService() models.TONService {
+	return s.tonService
 }
 
 // Фабричные методы для создания сервисов определены в соответствующих файлах

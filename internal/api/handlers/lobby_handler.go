@@ -1,17 +1,15 @@
 package handlers
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
-	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
+	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // LobbyHandler представляет обработчики для лобби
@@ -34,61 +32,55 @@ func NewLobbyHandler(
 	}
 }
 
-// JoinGame присоединяет пользователя к игре
+// JoinGame присоединяет пользователя к игре (оплата с баланса)
 func (h *LobbyHandler) JoinGame(c *gin.Context) {
-	log := logger.GetLogger().With(zap.String("handler", "JoinGame"))
-	log.Info("JoinGame handler called")
+	ctx, span := otel.StartSpan(c.Request.Context(), "handler.JoinGame")
+	defer span.End()
+	c.Request = c.Request.WithContext(ctx)
 
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
-		log.Error("User not found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
 	}
-	log.Info("User ID from context", zap.Uint64("user_id", userID))
+
+	span.SetAttributes(attribute.Int64("user_id", int64(userID)))
 
 	var input struct {
-		GameID    uuid.UUID `json:"game_id" binding:"required"`
-		BetAmount float64   `json:"bet_amount" binding:"required,gt=0"`
+		GameID    string  `json:"game_id" binding:"required"` // UUID или short_id
+		BetAmount float64 `json:"bet_amount" binding:"required,gt=0"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		log.Error("Invalid request data", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Info("Request data",
-		zap.String("game_id", input.GameID.String()),
-		zap.Float64("bet_amount", input.BetAmount))
 
-	// Проверяем, что игра существует и активна
-	log.Info("Getting game", zap.String("game_id", input.GameID.String()))
-	game, err := h.gameService.GetGame(c, input.GameID)
+	// Находим игру по ID или short_id
+	var game *models.Game
+	var err error
+
+	gameUUID, parseErr := uuid.Parse(input.GameID)
+	if parseErr != nil {
+		game, err = h.gameService.GetGameByShortID(c, input.GameID)
+	} else {
+		game, err = h.gameService.GetGame(c, gameUUID)
+	}
+
 	if err != nil {
-		log.Error("Game not found", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{"error": "game not found"})
 		return
 	}
 
-	log.Info("Game found",
-		zap.String("id", game.ID.String()),
-		zap.String("title", game.Title),
-		zap.String("status", game.Status))
+	span.SetAttributes(attribute.String("game_id", game.ID.String()))
 
 	if game.Status != models.GameStatusActive {
-		log.Error("Game is not active",
-			zap.String("game_id", game.ID.String()),
-			zap.String("status", game.Status))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "game is not active"})
 		return
 	}
 
-	// Проверяем, что ставка в допустимых пределах
+	// Проверяем ставку
 	if input.BetAmount < game.MinBet || input.BetAmount > game.MaxBet {
-		log.Error("Bet amount out of range",
-			zap.Float64("bet_amount", input.BetAmount),
-			zap.Float64("min_bet", game.MinBet),
-			zap.Float64("max_bet", game.MaxBet))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "bet amount is out of range",
 			"min_bet": game.MinBet,
@@ -97,63 +89,57 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 		return
 	}
 
-	// Создаем лобби
-	log.Info("Creating lobby",
-		zap.Uint64("user_id", userID),
-		zap.String("game_id", input.GameID.String()),
-		zap.Float64("bet_amount", input.BetAmount))
+	// Нельзя играть в свою игру
+	if game.CreatorID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot play your own game"})
+		return
+	}
+
+	// Проверяем, нет ли уже активного лобби
+	existingLobby, err := h.lobbyService.GetActiveLobbyByGameAndUser(c, game.ID, userID)
+	if err == nil && existingLobby != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":    "you already have an active game session",
+			"lobby_id": existingLobby.ID,
+			"lobby":    formatLobbyResponse(existingLobby),
+		})
+		return
+	}
+
+	// Создаём лобби
 	lobby := &models.Lobby{
-		GameID:    input.GameID,
+		GameID:    game.ID,
 		UserID:    userID,
 		BetAmount: input.BetAmount,
 	}
 
-	// Пробуем создать лобби напрямую через репозиторий для отладки
-	log.Info("Trying direct repository access for debugging")
-
-	// Проверяем, есть ли активное лобби
-	activeLobby, err := h.lobbyService.GetActiveLobbyByGameAndUser(c, input.GameID, userID)
-	if err != nil {
-		if errors.Is(err, models.ErrLobbyNotFound) {
-			log.Info("No active lobby found, can proceed with creation")
-		} else {
-			log.Error("Error checking for active lobby",
-				zap.Error(err),
-				zap.String("error_type", fmt.Sprintf("%T", err)))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to check for existing active lobby: %v", err)})
-			return
-		}
-	} else {
-		log.Error("User already has active lobby", zap.String("lobby_id", activeLobby.ID.String()))
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user already has an active lobby for this game"})
-		return
-	}
-
 	if err := h.lobbyService.CreateLobby(c, lobby); err != nil {
-		log.Error("Failed to create lobby", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	log.Info("Lobby created successfully",
-		zap.String("id", lobby.ID.String()),
-		zap.String("game_id", lobby.GameID.String()),
-		zap.Uint64("user_id", lobby.UserID))
 	c.JSON(http.StatusCreated, gin.H{
-		"id":               lobby.ID,
+		"lobby_id":         lobby.ID,
 		"game_id":          lobby.GameID,
+		"game_short_id":    game.ShortID,
 		"user_id":          lobby.UserID,
 		"max_tries":        lobby.MaxTries,
 		"tries_used":       lobby.TriesUsed,
 		"bet_amount":       lobby.BetAmount,
 		"potential_reward": lobby.PotentialReward,
+		"currency":         lobby.Currency,
 		"status":           lobby.Status,
 		"expires_at":       lobby.ExpiresAt,
+		"remaining_time":   lobby.GetRemainingTime(),
 	})
 }
 
 // GetLobby получает информацию о лобби
 func (h *LobbyHandler) GetLobby(c *gin.Context) {
+	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetLobby")
+	defer span.End()
+	c.Request = c.Request.WithContext(ctx)
+
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -173,33 +159,19 @@ func (h *LobbyHandler) GetLobby(c *gin.Context) {
 		return
 	}
 
-	// Проверяем, что пользователь имеет доступ к этому лобби
+	// Проверяем доступ
 	if lobby.UserID != userID {
-		// Получаем игру, чтобы проверить, является ли пользователь создателем игры
 		game, err := h.gameService.GetGame(c, lobby.GameID)
 		if err != nil || game.CreatorID != userID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied to this lobby"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":               lobby.ID,
-		"game_id":          lobby.GameID,
-		"user_id":          lobby.UserID,
-		"max_tries":        lobby.MaxTries,
-		"tries_used":       lobby.TriesUsed,
-		"bet_amount":       lobby.BetAmount,
-		"potential_reward": lobby.PotentialReward,
-		"status":           lobby.Status,
-		"expires_at":       lobby.ExpiresAt,
-		"created_at":       lobby.CreatedAt,
-		"updated_at":       lobby.UpdatedAt,
-		"attempts":         lobby.Attempts,
-	})
+	c.JSON(http.StatusOK, formatLobbyResponse(lobby))
 }
 
-// GetActiveLobby получает активное лобби пользователя
+// GetActiveLobby получает активное лобби пользователя для игры
 func (h *LobbyHandler) GetActiveLobby(c *gin.Context) {
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
@@ -213,36 +185,37 @@ func (h *LobbyHandler) GetActiveLobby(c *gin.Context) {
 		return
 	}
 
-	gameID, err := uuid.Parse(gameIDStr)
+	// Пробуем как UUID или short_id
+	var game *models.Game
+	var err error
+
+	gameUUID, parseErr := uuid.Parse(gameIDStr)
+	if parseErr != nil {
+		game, err = h.gameService.GetGameByShortID(c, gameIDStr)
+	} else {
+		game, err = h.gameService.GetGame(c, gameUUID)
+	}
+
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid game ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "game not found"})
 		return
 	}
 
-	lobby, err := h.lobbyService.GetActiveLobbyByGameAndUser(c, gameID, userID)
+	lobby, err := h.lobbyService.GetActiveLobbyByGameAndUser(c, game.ID, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "active lobby not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":               lobby.ID,
-		"game_id":          lobby.GameID,
-		"user_id":          lobby.UserID,
-		"max_tries":        lobby.MaxTries,
-		"tries_used":       lobby.TriesUsed,
-		"bet_amount":       lobby.BetAmount,
-		"potential_reward": lobby.PotentialReward,
-		"status":           lobby.Status,
-		"expires_at":       lobby.ExpiresAt,
-		"created_at":       lobby.CreatedAt,
-		"updated_at":       lobby.UpdatedAt,
-		"attempts":         lobby.Attempts,
-	})
+	c.JSON(http.StatusOK, formatLobbyResponse(lobby))
 }
 
 // MakeAttempt отправляет попытку угадать слово
 func (h *LobbyHandler) MakeAttempt(c *gin.Context) {
+	ctx, span := otel.StartSpan(c.Request.Context(), "handler.MakeAttempt")
+	defer span.End()
+	c.Request = c.Request.WithContext(ctx)
+
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -265,22 +238,39 @@ func (h *LobbyHandler) MakeAttempt(c *gin.Context) {
 		return
 	}
 
-	// Проверяем, что лобби существует
+	span.SetAttributes(
+		attribute.String("lobby_id", id.String()),
+		attribute.String("word", input.Word),
+	)
+
+	// Получаем лобби
 	lobby, err := h.lobbyService.GetLobby(c, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "lobby not found"})
 		return
 	}
 
-	// Проверяем, что пользователь имеет доступ к этому лобби
+	// Проверяем доступ
 	if lobby.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied to this lobby"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 
-	// Проверяем, что лобби активно
+	// Проверяем статус
 	if lobby.Status != models.LobbyStatusActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "lobby is not active"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "lobby is not active",
+			"status": lobby.Status,
+		})
+		return
+	}
+
+	// Проверяем время
+	if lobby.IsExpired() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "lobby time expired",
+			"status": models.LobbyStatusFailedExpired,
+		})
 		return
 	}
 
@@ -291,19 +281,42 @@ func (h *LobbyHandler) MakeAttempt(c *gin.Context) {
 		return
 	}
 
-	// Обновляем данные лобби после попытки
+	// Получаем обновлённое лобби
 	updatedLobby, err := h.lobbyService.GetLobby(c, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error getting updated lobby"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get updated lobby"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"result":     result,
-		"tries_used": updatedLobby.TriesUsed,
-		"status":     updatedLobby.Status,
-		"is_correct": isAllCorrect(result),
-	})
+	isCorrect := isAllCorrect(result)
+
+	response := gin.H{
+		"result":         result,
+		"word":           input.Word,
+		"tries_used":     updatedLobby.TriesUsed,
+		"tries_left":     updatedLobby.MaxTries - updatedLobby.TriesUsed,
+		"status":         updatedLobby.Status,
+		"is_correct":     isCorrect,
+		"remaining_time": updatedLobby.GetRemainingTime(),
+	}
+
+	// Если игра завершена, добавляем информацию о результате
+	if updatedLobby.Status != models.LobbyStatusActive {
+		if updatedLobby.Status == models.LobbyStatusSuccess {
+			response["reward"] = updatedLobby.PotentialReward
+			response["message"] = "Congratulations! You won!"
+		} else {
+			response["message"] = "Game over"
+		}
+
+		// Получаем игру для показа правильного слова
+		game, err := h.gameService.GetGame(c, lobby.GameID)
+		if err == nil {
+			response["correct_word"] = game.Word
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetAttempts получает историю попыток для лобби
@@ -321,28 +334,38 @@ func (h *LobbyHandler) GetAttempts(c *gin.Context) {
 		return
 	}
 
-	// Проверяем, что лобби существует
 	lobby, err := h.lobbyService.GetLobby(c, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "lobby not found"})
 		return
 	}
 
-	// Проверяем, что пользователь имеет доступ к этому лобби
+	// Проверяем доступ
 	if lobby.UserID != userID {
-		// Получаем игру, чтобы проверить, является ли пользователь создателем игры
 		game, err := h.gameService.GetGame(c, lobby.GameID)
 		if err != nil || game.CreatorID != userID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied to this lobby"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 			return
 		}
 	}
 
+	attempts := make([]gin.H, 0, len(lobby.Attempts))
+	for _, a := range lobby.Attempts {
+		attempts = append(attempts, gin.H{
+			"id":         a.ID,
+			"word":       a.Word,
+			"result":     a.Result,
+			"created_at": a.CreatedAt,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"attempts":   lobby.Attempts,
-		"tries_used": lobby.TriesUsed,
-		"max_tries":  lobby.MaxTries,
-		"status":     lobby.Status,
+		"attempts":       attempts,
+		"tries_used":     lobby.TriesUsed,
+		"tries_left":     lobby.MaxTries - lobby.TriesUsed,
+		"max_tries":      lobby.MaxTries,
+		"status":         lobby.Status,
+		"remaining_time": lobby.GetRemainingTime(),
 	})
 }
 
@@ -380,10 +403,12 @@ func (h *LobbyHandler) GetUserLobbies(c *gin.Context) {
 		result = append(result, gin.H{
 			"id":               lobby.ID,
 			"game_id":          lobby.GameID,
+			"game_short_id":    lobby.GameShortID,
 			"max_tries":        lobby.MaxTries,
 			"tries_used":       lobby.TriesUsed,
 			"bet_amount":       lobby.BetAmount,
 			"potential_reward": lobby.PotentialReward,
+			"currency":         lobby.Currency,
 			"status":           lobby.Status,
 			"created_at":       lobby.CreatedAt,
 			"expires_at":       lobby.ExpiresAt,
@@ -393,7 +418,47 @@ func (h *LobbyHandler) GetUserLobbies(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// ExtendLobbyTime продлевает время жизни лобби
+// CancelLobby отменяет активное лобби
+func (h *LobbyHandler) CancelLobby(c *gin.Context) {
+	userID, exists := middleware.GetCurrentUserID(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		return
+	}
+
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid lobby ID"})
+		return
+	}
+
+	lobby, err := h.lobbyService.GetLobby(c, id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "lobby not found"})
+		return
+	}
+
+	if lobby.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
+	if lobby.Status != models.LobbyStatusActive {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "lobby is not active"})
+		return
+	}
+
+	// Завершаем лобби как неудачное (игрок сдался)
+	if err := h.lobbyService.FinishLobby(c, id, false); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Lobby cancelled successfully"})
+}
+
+// ExtendLobbyTime продлевает время жизни лобби (если это разрешено)
 func (h *LobbyHandler) ExtendLobbyTime(c *gin.Context) {
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
@@ -409,7 +474,7 @@ func (h *LobbyHandler) ExtendLobbyTime(c *gin.Context) {
 	}
 
 	var input struct {
-		Duration int `json:"duration" binding:"required,min=1,max=30"`
+		Duration int `json:"duration" binding:"required,min=1,max=30"` // Минуты
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -417,25 +482,23 @@ func (h *LobbyHandler) ExtendLobbyTime(c *gin.Context) {
 		return
 	}
 
-	// Проверяем, что лобби существует
 	lobby, err := h.lobbyService.GetLobby(c, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "lobby not found"})
 		return
 	}
 
-	// Проверяем, что пользователь имеет доступ к этому лобби
 	if lobby.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied to this lobby"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
 	}
 
-	// Проверяем, что лобби активно
 	if lobby.Status != models.LobbyStatusActive {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "lobby is not active"})
 		return
 	}
 
+	// TODO: Возможно взимать плату за продление времени
 	if err := h.lobbyService.ExtendLobbyTime(c, id, input.Duration); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -443,17 +506,50 @@ func (h *LobbyHandler) ExtendLobbyTime(c *gin.Context) {
 
 	updatedLobby, err := h.lobbyService.GetLobby(c, id)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "Lobby time extended successfully"})
+		c.JSON(http.StatusOK, gin.H{"message": "Lobby time extended"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":    "Lobby time extended successfully",
-		"expires_at": updatedLobby.ExpiresAt,
+		"message":        "Lobby time extended",
+		"expires_at":     updatedLobby.ExpiresAt,
+		"remaining_time": updatedLobby.GetRemainingTime(),
 	})
 }
 
-// Вспомогательная функция для проверки, все ли буквы на правильных местах
+// formatLobbyResponse форматирует ответ для лобби
+func formatLobbyResponse(lobby *models.Lobby) gin.H {
+	attempts := make([]gin.H, 0, len(lobby.Attempts))
+	for _, a := range lobby.Attempts {
+		attempts = append(attempts, gin.H{
+			"id":         a.ID,
+			"word":       a.Word,
+			"result":     a.Result,
+			"created_at": a.CreatedAt,
+		})
+	}
+
+	return gin.H{
+		"id":               lobby.ID,
+		"game_id":          lobby.GameID,
+		"game_short_id":    lobby.GameShortID,
+		"user_id":          lobby.UserID,
+		"max_tries":        lobby.MaxTries,
+		"tries_used":       lobby.TriesUsed,
+		"tries_left":       lobby.MaxTries - lobby.TriesUsed,
+		"bet_amount":       lobby.BetAmount,
+		"potential_reward": lobby.PotentialReward,
+		"currency":         lobby.Currency,
+		"status":           lobby.Status,
+		"expires_at":       lobby.ExpiresAt,
+		"remaining_time":   lobby.GetRemainingTime(),
+		"created_at":       lobby.CreatedAt,
+		"updated_at":       lobby.UpdatedAt,
+		"attempts":         attempts,
+	}
+}
+
+// isAllCorrect проверяет, все ли буквы на правильных местах
 func isAllCorrect(result []int) bool {
 	for _, r := range result {
 		if r != 2 {

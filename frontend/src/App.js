@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { TonConnectProvider } from './context/TonConnectContext';
 import HomePage from './pages/HomePage';
 import GamePage from './pages/GamePage';
 import LobbyPage from './pages/LobbyPage';
@@ -115,12 +116,26 @@ const App = () => {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
                     
+                    // Устанавливаем тему
+                    const colorScheme = window.Telegram.WebApp.colorScheme;
+                    document.documentElement.setAttribute('data-theme', colorScheme);
+                    
                     // Получаем данные инициализации
                     const initData = window.Telegram.WebApp.initData;
                     if (initData) {
                         // Сохраняем данные в localStorage для использования в API
                         localStorage.setItem('telegram_init_data', initData);
                     }
+
+                    // Настраиваем MainButton
+                    window.Telegram.WebApp.MainButton.hide();
+                    
+                    // Обработка закрытия приложения
+                    window.Telegram.WebApp.onEvent('viewportChanged', () => {
+                        if (!window.Telegram.WebApp.isExpanded) {
+                            window.Telegram.WebApp.expand();
+                        }
+                    });
                 } catch (error) {
                     console.error('Error initializing Telegram WebApp:', error);
                 }
@@ -132,11 +147,13 @@ const App = () => {
 
     return (
         <Router>
-            <AuthProvider>
-                <GlobalStyle>
-                    <AppRoutes />
-                </GlobalStyle>
-            </AuthProvider>
+            <TonConnectProvider>
+                <AuthProvider>
+                    <GlobalStyle>
+                        <AppRoutes />
+                    </GlobalStyle>
+                </AuthProvider>
+            </TonConnectProvider>
         </Router>
     );
 };

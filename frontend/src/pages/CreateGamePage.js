@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { gameAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useTonConnect } from '../context/TonConnectContext';
 
 const Container = styled.div`
-  max-width: 800px;
+  max-width: 600px;
   margin: 0 auto;
   padding: 16px;
+  padding-bottom: 100px;
 `;
 
 const Header = styled.div`
@@ -67,6 +69,7 @@ const Input = styled.input`
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 16px;
+  box-sizing: border-box;
   
   &:focus {
     outline: none;
@@ -81,7 +84,8 @@ const TextArea = styled.textarea`
   border-radius: 6px;
   font-size: 16px;
   resize: vertical;
-  min-height: 100px;
+  min-height: 80px;
+  box-sizing: border-box;
   
   &:focus {
     outline: none;
@@ -96,6 +100,7 @@ const Select = styled.select`
   border-radius: 6px;
   font-size: 16px;
   background-color: #fff;
+  box-sizing: border-box;
   
   &:focus {
     outline: none;
@@ -113,10 +118,18 @@ const RadioLabel = styled.label`
   display: flex;
   align-items: center;
   cursor: pointer;
+  padding: 12px 20px;
+  border: 2px solid ${props => props.checked ? '#0088CC' : '#ddd'};
+  border-radius: 8px;
+  background: ${props => props.checked ? '#e6f4ff' : 'white'};
+  transition: all 0.2s;
+  flex: 1;
+  justify-content: center;
+  font-weight: ${props => props.checked ? '600' : '400'};
 `;
 
 const RadioInput = styled.input`
-  margin-right: 8px;
+  display: none;
 `;
 
 const RangeContainer = styled.div`
@@ -136,24 +149,27 @@ const RangeLabels = styled.div`
 `;
 
 const SubmitButton = styled.button`
-  background-color: #0077cc;
+  background: linear-gradient(135deg, #0088CC 0%, #00AAFF 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  padding: 14px 20px;
+  border-radius: 8px;
+  padding: 16px 20px;
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
   width: 100%;
   margin-top: 16px;
+  transition: transform 0.2s, box-shadow 0.2s;
   
   &:hover {
-    background-color: #0066b3;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
   }
   
   &:disabled {
-    background-color: #cccccc;
+    background: #cccccc;
     cursor: not-allowed;
+    transform: none;
   }
 `;
 
@@ -172,9 +188,128 @@ const HelperText = styled.p`
   margin-top: 4px;
 `;
 
+const DepositInfo = styled.div`
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 24px 0;
+  border: 1px solid #e0e0e0;
+`;
+
+const DepositTitle = styled.h3`
+  margin: 0 0 12px;
+  color: #333;
+  font-size: 16px;
+`;
+
+const DepositAmount = styled.div`
+  font-size: 28px;
+  font-weight: 700;
+  color: #0088CC;
+  margin: 8px 0;
+`;
+
+const DepositDescription = styled.p`
+  font-size: 13px;
+  color: #666;
+  margin: 8px 0 0;
+  line-height: 1.5;
+`;
+
+const PaymentModal = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+`;
+
+const PaymentCard = styled.div`
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+`;
+
+const PaymentTitle = styled.h2`
+  margin: 0 0 16px;
+  color: #333;
+`;
+
+const PaymentAmount = styled.div`
+  font-size: 32px;
+  font-weight: 700;
+  color: #0088CC;
+  margin: 16px 0;
+`;
+
+const PaymentAddress = styled.div`
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 12px;
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+  margin: 16px 0;
+`;
+
+const PaymentComment = styled.div`
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0;
+  
+  strong {
+    display: block;
+    color: #e65100;
+    margin-bottom: 4px;
+  }
+  
+  code {
+    font-family: monospace;
+    font-size: 16px;
+    color: #333;
+  }
+`;
+
+const PaymentButton = styled.button`
+  background: linear-gradient(135deg, #0088CC 0%, #00AAFF 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 14px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 16px;
+`;
+
+const CancelButton = styled.button`
+  background: #e0e0e0;
+  color: #333;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 12px;
+`;
+
 const CreateGamePage = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { isConnected, sendTransaction, getPaymentDeepLink } = useTonConnect();
 
     const [formData, setFormData] = useState({
         title: '',
@@ -182,15 +317,22 @@ const CreateGamePage = () => {
         word: '',
         difficulty: 'medium',
         max_tries: 6,
-        min_bet: 1,
-        max_bet: 10,
+        time_limit: 5, // минуты
+        min_bet: 0.1,
+        max_bet: 1,
         reward_multiplier: 2,
         currency: 'TON',
-        initial_deposit: 0
     });
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [paymentInfo, setPaymentInfo] = useState(null);
+    const [createdGame, setCreatedGame] = useState(null);
+
+    // Расчет требуемого депозита
+    const requiredDeposit = useMemo(() => {
+        return parseFloat(formData.max_bet) * parseFloat(formData.reward_multiplier);
+    }, [formData.max_bet, formData.reward_multiplier]);
 
     // Обработка изменения полей формы
     const handleChange = (e) => {
@@ -198,32 +340,46 @@ const CreateGamePage = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // Обработка отправки формы
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-
-        // Валидация формы
+    // Валидация формы
+    const validateForm = () => {
         if (!formData.title.trim()) {
             setError('Пожалуйста, укажите название игры');
-            return;
+            return false;
         }
 
         if (!formData.word.trim()) {
             setError('Пожалуйста, укажите слово для угадывания');
-            return;
+            return false;
         }
 
-        // Проверка длины слова (от 3 до 8 букв)
         if (formData.word.length < 3 || formData.word.length > 8) {
             setError('Длина слова должна быть от 3 до 8 букв');
-            return;
+            return false;
         }
 
-        // Проверка на кириллицу
         if (!/^[а-яё]+$/i.test(formData.word)) {
             setError('Слово должно содержать только русские буквы');
-            return;
+            return false;
         }
+
+        if (parseFloat(formData.min_bet) <= 0) {
+            setError('Минимальная ставка должна быть больше 0');
+            return false;
+        }
+
+        if (parseFloat(formData.max_bet) < parseFloat(formData.min_bet)) {
+            setError('Максимальная ставка не может быть меньше минимальной');
+            return false;
+        }
+
+        return true;
+    };
+
+    // Обработка отправки формы
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!validateForm()) return;
 
         try {
             setLoading(true);
@@ -231,20 +387,32 @@ const CreateGamePage = () => {
 
             // Подготавливаем данные для отправки
             const gameData = {
-                ...formData,
+                title: formData.title,
+                description: formData.description,
                 word: formData.word.toLowerCase(),
                 length: formData.word.length,
+                difficulty: formData.difficulty,
+                max_tries: parseInt(formData.max_tries),
+                time_limit: parseInt(formData.time_limit),
                 min_bet: parseFloat(formData.min_bet),
                 max_bet: parseFloat(formData.max_bet),
                 reward_multiplier: parseFloat(formData.reward_multiplier),
-                initial_deposit: parseFloat(formData.initial_deposit)
+                currency: formData.currency,
             };
 
             // Создаем игру
             const response = await gameAPI.createGame(gameData);
+            const game = response.data;
 
-            // Если успешно, переходим на страницу созданной игры
-            navigate(`/games/${response.data.id}`);
+            setCreatedGame(game);
+
+            // Если есть информация о платеже, показываем модал оплаты
+            if (game.payment_info) {
+                setPaymentInfo(game.payment_info);
+            } else {
+                // Если депозит не требуется, переходим на страницу игры
+                navigate(`/games/${game.id}`);
+            }
         } catch (err) {
             console.error('Error creating game:', err);
             setError(err.response?.data?.error || 'Не удалось создать игру');
@@ -253,18 +421,66 @@ const CreateGamePage = () => {
         }
     };
 
+    // Оплата через TON Connect
+    const handleTonConnectPayment = async () => {
+        if (!paymentInfo || !isConnected) return;
+
+        try {
+            setLoading(true);
+            await sendTransaction(
+                paymentInfo.address,
+                paymentInfo.amount,
+                paymentInfo.comment
+            );
+            
+            // После успешной отправки транзакции переходим на страницу игры
+            navigate(`/games/${createdGame.id}`, { 
+                state: { paymentPending: true } 
+            });
+        } catch (err) {
+            console.error('Payment error:', err);
+            setError('Ошибка при оплате. Попробуйте еще раз.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Оплата через deep link
+    const handleDeepLinkPayment = () => {
+        if (!paymentInfo) return;
+        
+        const deepLink = getPaymentDeepLink(
+            paymentInfo.address,
+            paymentInfo.amount,
+            paymentInfo.comment
+        );
+        
+        window.open(deepLink, '_blank');
+        
+        // Переходим на страницу игры
+        navigate(`/games/${createdGame.id}`, { 
+            state: { paymentPending: true } 
+        });
+    };
+
+    // Закрытие модала оплаты
+    const handleCancelPayment = () => {
+        setPaymentInfo(null);
+        setCreatedGame(null);
+    };
+
     // Возврат на главную страницу
     const handleBack = () => {
-        navigate('/');
+        navigate('/my-games');
     };
 
     return (
         <Container>
-            <BackButton onClick={handleBack}>← Вернуться на главную</BackButton>
+            <BackButton onClick={handleBack}>← Мои игры</BackButton>
 
             <Header>
-                <Title>Создание новой игры</Title>
-                <Subtitle>Задайте параметры игры и загадайте слово</Subtitle>
+                <Title>Создание игры</Title>
+                <Subtitle>Загадайте слово и установите условия</Subtitle>
             </Header>
 
             {error && <ErrorMessage>{error}</ErrorMessage>}
@@ -278,7 +494,7 @@ const CreateGamePage = () => {
                         name="title"
                         value={formData.title}
                         onChange={handleChange}
-                        placeholder="Введите название игры"
+                        placeholder="Например: Угадай слово"
                         required
                     />
                 </FormGroup>
@@ -290,7 +506,7 @@ const CreateGamePage = () => {
                         name="description"
                         value={formData.description}
                         onChange={handleChange}
-                        placeholder="Введите описание игры"
+                        placeholder="Подсказка или описание игры"
                     />
                 </FormGroup>
 
@@ -302,43 +518,16 @@ const CreateGamePage = () => {
                         name="word"
                         value={formData.word}
                         onChange={handleChange}
-                        placeholder="Введите слово для угадывания"
+                        placeholder="Введите слово"
                         required
                     />
                     <HelperText>Только русские буквы, от 3 до 8 букв</HelperText>
                 </FormGroup>
 
                 <FormGroup>
-                    <Label htmlFor="difficulty">Сложность</Label>
-                    <Select
-                        id="difficulty"
-                        name="difficulty"
-                        value={formData.difficulty}
-                        onChange={handleChange}
-                    >
-                        <option value="easy">Легкая</option>
-                        <option value="medium">Средняя</option>
-                        <option value="hard">Сложная</option>
-                    </Select>
-                </FormGroup>
-
-                <FormGroup>
-                    <Label htmlFor="max_tries">Количество попыток</Label>
-                    <Input
-                        type="number"
-                        id="max_tries"
-                        name="max_tries"
-                        min="3"
-                        max="10"
-                        value={formData.max_tries}
-                        onChange={handleChange}
-                    />
-                </FormGroup>
-
-                <FormGroup>
                     <Label>Валюта</Label>
                     <RadioGroup>
-                        <RadioLabel>
+                        <RadioLabel checked={formData.currency === 'TON'}>
                             <RadioInput
                                 type="radio"
                                 name="currency"
@@ -346,9 +535,9 @@ const CreateGamePage = () => {
                                 checked={formData.currency === 'TON'}
                                 onChange={handleChange}
                             />
-                            TON
+                            💎 TON
                         </RadioLabel>
-                        <RadioLabel>
+                        <RadioLabel checked={formData.currency === 'USDT'}>
                             <RadioInput
                                 type="radio"
                                 name="currency"
@@ -356,9 +545,37 @@ const CreateGamePage = () => {
                                 checked={formData.currency === 'USDT'}
                                 onChange={handleChange}
                             />
-                            USDT
+                            💵 USDT
                         </RadioLabel>
                     </RadioGroup>
+                </FormGroup>
+
+                <FormGroup>
+                    <Label htmlFor="max_tries">Количество попыток</Label>
+                    <Select
+                        id="max_tries"
+                        name="max_tries"
+                        value={formData.max_tries}
+                        onChange={handleChange}
+                    >
+                        {[3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                            <option key={n} value={n}>{n} попыток</option>
+                        ))}
+                    </Select>
+                </FormGroup>
+
+                <FormGroup>
+                    <Label htmlFor="time_limit">Время на игру</Label>
+                    <Select
+                        id="time_limit"
+                        name="time_limit"
+                        value={formData.time_limit}
+                        onChange={handleChange}
+                    >
+                        {[1, 2, 3, 5, 10, 15, 30].map(n => (
+                            <option key={n} value={n}>{n} мин</option>
+                        ))}
+                    </Select>
                 </FormGroup>
 
                 <FormGroup>
@@ -367,8 +584,8 @@ const CreateGamePage = () => {
                         type="number"
                         id="min_bet"
                         name="min_bet"
-                        min="0.1"
-                        step="0.1"
+                        min="0.01"
+                        step="0.01"
                         value={formData.min_bet}
                         onChange={handleChange}
                     />
@@ -381,55 +598,89 @@ const CreateGamePage = () => {
                         id="max_bet"
                         name="max_bet"
                         min={formData.min_bet}
-                        step="0.1"
+                        step="0.01"
                         value={formData.max_bet}
                         onChange={handleChange}
                     />
                 </FormGroup>
 
                 <FormGroup>
-                    <Label htmlFor="reward_multiplier">Множитель награды</Label>
+                    <Label htmlFor="reward_multiplier">Множитель награды: {formData.reward_multiplier}x</Label>
                     <RangeContainer>
                         <RangeInput
                             type="range"
                             id="reward_multiplier"
                             name="reward_multiplier"
-                            min="1.1"
+                            min="1.5"
                             max="5"
                             step="0.1"
                             value={formData.reward_multiplier}
                             onChange={handleChange}
                         />
                         <RangeLabels>
-                            <span>1.1x</span>
-                            <span>{formData.reward_multiplier}x</span>
+                            <span>1.5x</span>
                             <span>5x</span>
                         </RangeLabels>
                     </RangeContainer>
-                </FormGroup>
-
-                <FormGroup>
-                    <Label htmlFor="initial_deposit">Начальный депозит в призовой фонд ({formData.currency})</Label>
-                    <Input
-                        type="number"
-                        id="initial_deposit"
-                        name="initial_deposit"
-                        min="0"
-                        step="0.1"
-                        value={formData.initial_deposit}
-                        onChange={handleChange}
-                    />
                     <HelperText>
-                        Чем больше начальный депозит, тем привлекательнее будет игра для участников
+                        При выигрыше игрок получит ставку × {formData.reward_multiplier}
                     </HelperText>
                 </FormGroup>
 
+                <DepositInfo>
+                    <DepositTitle>💰 Требуемый депозит</DepositTitle>
+                    <DepositAmount>
+                        {requiredDeposit.toFixed(4)} {formData.currency}
+                    </DepositAmount>
+                    <DepositDescription>
+                        Депозит = максимальная ставка × множитель награды.
+                        Это гарантирует выплату победителю.
+                        После создания игры вам нужно будет оплатить депозит.
+                    </DepositDescription>
+                </DepositInfo>
+
                 <SubmitButton type="submit" disabled={loading}>
-                    {loading ? 'Создание...' : 'Создать игру'}
+                    {loading ? 'Создание...' : `Создать игру (${requiredDeposit.toFixed(4)} ${formData.currency})`}
                 </SubmitButton>
             </Form>
+
+            {/* Модал оплаты */}
+            {paymentInfo && (
+                <PaymentModal onClick={handleCancelPayment}>
+                    <PaymentCard onClick={e => e.stopPropagation()}>
+                        <PaymentTitle>💎 Оплата депозита</PaymentTitle>
+                        
+                        <PaymentAmount>
+                            {paymentInfo.amount} {paymentInfo.currency}
+                        </PaymentAmount>
+
+                        <PaymentAddress>
+                            {paymentInfo.address}
+                        </PaymentAddress>
+
+                        <PaymentComment>
+                            <strong>⚠️ Важно! Укажите комментарий:</strong>
+                            <code>{paymentInfo.comment}</code>
+                        </PaymentComment>
+
+                        {isConnected ? (
+                            <PaymentButton onClick={handleTonConnectPayment} disabled={loading}>
+                                {loading ? 'Отправка...' : '🔗 Оплатить через TON Connect'}
+                            </PaymentButton>
+                        ) : (
+                            <PaymentButton onClick={handleDeepLinkPayment}>
+                                📱 Открыть кошелек
+                            </PaymentButton>
+                        )}
+
+                        <CancelButton onClick={handleCancelPayment}>
+                            Отмена
+                        </CancelButton>
+                    </PaymentCard>
+                </PaymentModal>
+            )}
         </Container>
     );
 };
 
-export default CreateGamePage; 
+export default CreateGamePage;

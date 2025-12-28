@@ -449,3 +449,97 @@ func (r *UserRepository) UpdateUsdtBalance(ctx context.Context, telegramID uint6
 		zap.Float64("amount", amount))
 	return nil
 }
+
+// GetByWallet получает пользователя по адресу кошелька
+func (r *UserRepository) GetByWallet(ctx context.Context, wallet string) (*models.User, error) {
+	query := `
+		SELECT telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt,
+			COALESCE(pending_withdrawal, 0), withdrawal_lock_until, wins, losses,
+			COALESCE(total_deposited, 0), COALESCE(total_withdrawn, 0), created_at, updated_at
+		FROM users
+		WHERE wallet = $1
+	`
+
+	var user models.User
+	var withdrawalLockUntil sql.NullTime
+	err := r.db.QueryRowContext(ctx, query, wallet).Scan(
+		&user.TelegramID,
+		&user.Username,
+		&user.FirstName,
+		&user.LastName,
+		&user.Wallet,
+		&user.BalanceTon,
+		&user.BalanceUsdt,
+		&user.PendingWithdrawal,
+		&withdrawalLockUntil,
+		&user.Wins,
+		&user.Losses,
+		&user.TotalDeposited,
+		&user.TotalWithdrawn,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, models.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to get user by wallet: %w", err)
+	}
+
+	if withdrawalLockUntil.Valid {
+		user.WithdrawalLockUntil = &withdrawalLockUntil.Time
+	}
+
+	return &user, nil
+}
+
+// UpdateWallet обновляет адрес кошелька пользователя
+func (r *UserRepository) UpdateWallet(ctx context.Context, telegramID uint64, wallet string) error {
+	query := `UPDATE users SET wallet = $1, updated_at = $2 WHERE telegram_id = $3`
+	_, err := r.db.ExecContext(ctx, query, wallet, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to update wallet: %w", err)
+	}
+	return nil
+}
+
+// UpdatePendingWithdrawal обновляет сумму в процессе вывода
+func (r *UserRepository) UpdatePendingWithdrawal(ctx context.Context, telegramID uint64, amount float64) error {
+	query := `UPDATE users SET pending_withdrawal = COALESCE(pending_withdrawal, 0) + $1, updated_at = $2 WHERE telegram_id = $3`
+	_, err := r.db.ExecContext(ctx, query, amount, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to update pending withdrawal: %w", err)
+	}
+	return nil
+}
+
+// SetWithdrawalLock устанавливает блокировку вывода до указанного времени
+func (r *UserRepository) SetWithdrawalLock(ctx context.Context, telegramID uint64, lockUntil time.Time) error {
+	query := `UPDATE users SET withdrawal_lock_until = $1, updated_at = $2 WHERE telegram_id = $3`
+	_, err := r.db.ExecContext(ctx, query, lockUntil, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to set withdrawal lock: %w", err)
+	}
+	return nil
+}
+
+// IncrementWins увеличивает количество побед
+func (r *UserRepository) IncrementWins(ctx context.Context, telegramID uint64) error {
+	query := `UPDATE users SET wins = wins + 1, updated_at = $1 WHERE telegram_id = $2`
+	_, err := r.db.ExecContext(ctx, query, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to increment wins: %w", err)
+	}
+	return nil
+}
+
+// IncrementLosses увеличивает количество поражений
+func (r *UserRepository) IncrementLosses(ctx context.Context, telegramID uint64) error {
+	query := `UPDATE users SET losses = losses + 1, updated_at = $1 WHERE telegram_id = $2`
+	_, err := r.db.ExecContext(ctx, query, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to increment losses: %w", err)
+	}
+	return nil
+}

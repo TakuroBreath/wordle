@@ -90,14 +90,9 @@ func (s *JobServiceImpl) ProcessExpiredLobbies(ctx context.Context) error {
 
 // ProcessPendingTransactions обрабатывает отложенные транзакции
 func (s *JobServiceImpl) ProcessPendingTransactions(ctx context.Context) error {
-	// Обрабатываем отложенные выводы
-	err := s.transactionService.MonitorPendingWithdrawals(ctx)
-	if err != nil {
-		fmt.Printf("ERROR: Failed to process pending withdrawals: %v\n", err)
-	}
-
-	// Здесь можно добавить обработку других типов отложенных транзакций
-	// например, депозитов, наград и т.д.
+	// Обрабатываем отложенные транзакции через blockchain provider
+	// Примечание: мониторинг выводов осуществляется через BlockchainWorker
+	// Здесь можно добавить дополнительную логику обработки транзакций при необходимости
 
 	return nil
 }
@@ -118,8 +113,8 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 	}
 
 	for _, transaction := range transactions.Transactions {
-		// Используем новый интерфейс для проверки обработанности транзакции
-		if s.transactionService.IsTransactionProcessed(ctx, transaction.Hash, "TON") {
+		// Проверяем, была ли транзакция уже обработана
+		if s.transactionService.IsTransactionProcessed(ctx, transaction.Hash) {
 			continue
 		}
 		
@@ -155,8 +150,8 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 				continue
 			}
 
-			// Используем новый интерфейс для обработки депозита
-			err = s.transactionService.ProcessBlockchainDeposit(ctx, game.CreatorID, amount, models.CurrencyTON, transaction.Hash, "TON")
+			// Создаем запись о депозите через ProcessDeposit
+			err = s.transactionService.ProcessDeposit(ctx, game.CreatorID, amount, models.CurrencyTON, transaction.Hash, "TON")
 			if err != nil {
 				fmt.Printf("WARNING: Failed to process deposit for game %s: %v\n", game.ID, err)
 				continue

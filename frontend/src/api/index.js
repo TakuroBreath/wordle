@@ -132,20 +132,40 @@ export const userAPI = {
         return retryRequest(() => api.get('/users/balance'));
     },
 
+    // Подключение кошелька
+    connectWallet: async (wallet) => {
+        return retryRequest(() => api.post('/users/wallet', { wallet }));
+    },
+
+    // Получение информации для депозита
+    getDepositInfo: async () => {
+        return retryRequest(() => api.get('/users/deposit'));
+    },
+
     // Запрос на вывод средств
-    requestWithdraw: async (amount, currency) => {
-        return retryRequest(() => api.post('/users/withdraw', { amount, currency }));
+    requestWithdraw: async (amount, currency, toAddress) => {
+        return retryRequest(() => api.post('/users/withdraw', { amount, currency, to_address: toAddress }));
     },
 
     // История выводов
     getWithdrawHistory: async () => {
         return retryRequest(() => api.get('/users/withdrawals'));
+    },
+
+    // История транзакций
+    getTransactionHistory: async (limit = 50, offset = 0) => {
+        return retryRequest(() => api.get('/users/transactions', { params: { limit, offset } }));
+    },
+
+    // Статистика пользователя
+    getStats: async () => {
+        return retryRequest(() => api.get('/users/stats'));
     }
 };
 
 // API методы для игр
 export const gameAPI = {
-    // Получение всех игр
+    // Получение всех активных игр
     getAllGames: async () => {
         return retryRequest(() => api.get('/games'));
     },
@@ -155,14 +175,24 @@ export const gameAPI = {
         return retryRequest(() => api.get('/games/my'));
     },
 
-    // Получение игры по ID
+    // Получение игры по ID или ShortID
     getGame: async (id) => {
         return retryRequest(() => api.get(`/games/${id}`));
     },
 
-    // Создание игры
+    // Создание игры (возвращает payment_info для депозита)
     createGame: async (gameData) => {
         return retryRequest(() => api.post('/games', gameData));
+    },
+
+    // Получение платежной информации для игры
+    getPaymentInfo: async (id) => {
+        return retryRequest(() => api.get(`/games/${id}/payment`));
+    },
+
+    // Присоединение к игре (возвращает lobby или payment_info)
+    joinGame: async (gameId, betAmount) => {
+        return retryRequest(() => api.post('/games/join', { game_id: gameId, bet_amount: betAmount }));
     },
 
     // Удаление игры

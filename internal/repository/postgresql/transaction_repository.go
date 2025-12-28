@@ -166,49 +166,6 @@ func (r *TransactionRepository) GetByUserID(ctx context.Context, userID uint64, 
 	return transactions, nil
 }
 
-// GetByStatus получает все транзакции с определенным статусом
-func (r *TransactionRepository) GetByStatus(ctx context.Context, status string) ([]*models.Transaction, error) {
-	query := `
-		SELECT id, user_id, amount, type, status, created_at, updated_at
-		FROM transactions
-		WHERE status = $1
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, status)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transactions by status: %w", err)
-	}
-	defer rows.Close()
-
-	var transactions []*models.Transaction
-	for rows.Next() {
-		var transaction models.Transaction
-
-		err := rows.Scan(
-			&transaction.ID,
-			&transaction.UserID,
-			&transaction.Amount,
-			&transaction.Type,
-			&transaction.Status,
-			&transaction.CreatedAt,
-			&transaction.UpdatedAt,
-		)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan transaction: %w", err)
-		}
-
-		transactions = append(transactions, &transaction)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating transactions by status: %w", err)
-	}
-
-	return transactions, nil
-}
-
 // GetByType получает транзакции по типу с пагинацией
 func (r *TransactionRepository) GetByType(ctx context.Context, transactionType string, limit, offset int) ([]*models.Transaction, error) {
 	query := `
@@ -393,4 +350,250 @@ func (r *TransactionRepository) CheckSufficientFunds(ctx context.Context, userID
 	}
 
 	return hasEnough, nil
+}
+
+// GetByTxHash получает транзакцию по хешу блокчейна
+func (r *TransactionRepository) GetByTxHash(ctx context.Context, txHash string) (*models.Transaction, error) {
+	query := `
+		SELECT id, user_id, type, amount, currency, status, tx_hash, network, game_id, lobby_id,
+			COALESCE(description, ''), COALESCE(fee, 0), COALESCE(blockchain_lt, 0),
+			COALESCE(from_address, ''), COALESCE(to_address, ''), COALESCE(comment, ''),
+			COALESCE(game_short_id, ''), COALESCE(error_message, ''), COALESCE(confirmations, 0),
+			processed_at, created_at, updated_at
+		FROM transactions
+		WHERE tx_hash = $1
+	`
+
+	var tx models.Transaction
+	var processedAt sql.NullTime
+	var gameID, lobbyID sql.NullString
+	var network sql.NullString
+
+	err := r.db.QueryRowContext(ctx, query, txHash).Scan(
+		&tx.ID,
+		&tx.UserID,
+		&tx.Type,
+		&tx.Amount,
+		&tx.Currency,
+		&tx.Status,
+		&tx.TxHash,
+		&network,
+		&gameID,
+		&lobbyID,
+		&tx.Description,
+		&tx.Fee,
+		&tx.BlockchainLt,
+		&tx.FromAddress,
+		&tx.ToAddress,
+		&tx.Comment,
+		&tx.GameShortID,
+		&tx.ErrorMessage,
+		&tx.Confirmations,
+		&processedAt,
+		&tx.CreatedAt,
+		&tx.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, models.ErrTransactionNotFound
+		}
+		return nil, fmt.Errorf("failed to get transaction by tx_hash: %w", err)
+	}
+
+	if network.Valid {
+		tx.Network = network.String
+	}
+	if gameID.Valid {
+		id, _ := uuid.Parse(gameID.String)
+		tx.GameID = &id
+	}
+	if lobbyID.Valid {
+		id, _ := uuid.Parse(lobbyID.String)
+		tx.LobbyID = &id
+	}
+	if processedAt.Valid {
+		tx.ProcessedAt = &processedAt.Time
+	}
+
+	return &tx, nil
+}
+
+// ExistsByTxHash проверяет существование транзакции по хешу
+func (r *TransactionRepository) ExistsByTxHash(ctx context.Context, txHash string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM transactions WHERE tx_hash = $1)`
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, txHash).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check transaction existence: %w", err)
+	}
+	return exists, nil
+}
+
+// GetByStatus получает транзакции по статусу
+func (r *TransactionRepository) GetByStatus(ctx context.Context, status string, limit, offset int) ([]*models.Transaction, error) {
+	query := `
+		SELECT id, user_id, type, amount, currency, status, tx_hash, network, game_id, lobby_id,
+			COALESCE(description, ''), created_at, updated_at
+		FROM transactions
+		WHERE status = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, status, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions by status: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []*models.Transaction
+	for rows.Next() {
+		var tx models.Transaction
+		var gameID, lobbyID, network sql.NullString
+
+		err := rows.Scan(
+			&tx.ID,
+			&tx.UserID,
+			&tx.Type,
+			&tx.Amount,
+			&tx.Currency,
+			&tx.Status,
+			&tx.TxHash,
+			&network,
+			&gameID,
+			&lobbyID,
+			&tx.Description,
+			&tx.CreatedAt,
+			&tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+
+		if network.Valid {
+			tx.Network = network.String
+		}
+		if gameID.Valid {
+			id, _ := uuid.Parse(gameID.String)
+			tx.GameID = &id
+		}
+		if lobbyID.Valid {
+			id, _ := uuid.Parse(lobbyID.String)
+			tx.LobbyID = &id
+		}
+
+		transactions = append(transactions, &tx)
+	}
+
+	return transactions, rows.Err()
+}
+
+// GetPendingByGameShortID получает pending транзакции для игры
+func (r *TransactionRepository) GetPendingByGameShortID(ctx context.Context, gameShortID string) ([]*models.Transaction, error) {
+	query := `
+		SELECT id, user_id, type, amount, currency, status, tx_hash, created_at, updated_at
+		FROM transactions
+		WHERE game_short_id = $1 AND status = 'pending'
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, gameShortID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending transactions: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []*models.Transaction
+	for rows.Next() {
+		var tx models.Transaction
+		err := rows.Scan(
+			&tx.ID,
+			&tx.UserID,
+			&tx.Type,
+			&tx.Amount,
+			&tx.Currency,
+			&tx.Status,
+			&tx.TxHash,
+			&tx.CreatedAt,
+			&tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+		transactions = append(transactions, &tx)
+	}
+
+	return transactions, rows.Err()
+}
+
+// GetPendingWithdrawals получает pending выводы
+func (r *TransactionRepository) GetPendingWithdrawals(ctx context.Context, limit int) ([]*models.Transaction, error) {
+	query := `
+		SELECT id, user_id, type, amount, currency, status, 
+			COALESCE(to_address, ''), COALESCE(fee, 0), COALESCE(comment, ''),
+			created_at, updated_at
+		FROM transactions
+		WHERE type = 'withdraw' AND status = 'pending'
+		ORDER BY created_at ASC
+		LIMIT $1
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending withdrawals: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []*models.Transaction
+	for rows.Next() {
+		var tx models.Transaction
+		err := rows.Scan(
+			&tx.ID,
+			&tx.UserID,
+			&tx.Type,
+			&tx.Amount,
+			&tx.Currency,
+			&tx.Status,
+			&tx.ToAddress,
+			&tx.Fee,
+			&tx.Comment,
+			&tx.CreatedAt,
+			&tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan transaction: %w", err)
+		}
+		transactions = append(transactions, &tx)
+	}
+
+	return transactions, rows.Err()
+}
+
+// GetLastProcessedLt получает последний обработанный lt
+func (r *TransactionRepository) GetLastProcessedLt(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(last_processed_lt, 0) FROM blockchain_state WHERE id = 1`
+	var lt int64
+	err := r.db.QueryRowContext(ctx, query).Scan(&lt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to get last processed lt: %w", err)
+	}
+	return lt, nil
+}
+
+// UpdateLastProcessedLt обновляет последний обработанный lt
+func (r *TransactionRepository) UpdateLastProcessedLt(ctx context.Context, lt int64) error {
+	query := `
+		INSERT INTO blockchain_state (id, last_processed_lt, updated_at)
+		VALUES (1, $1, $2)
+		ON CONFLICT (id) DO UPDATE SET last_processed_lt = $1, updated_at = $2
+	`
+	_, err := r.db.ExecContext(ctx, query, lt, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to update last processed lt: %w", err)
+	}
+	return nil
 }

@@ -699,3 +699,60 @@ func (r *LobbyRepository) GetLobbyStats(ctx context.Context, lobbyID uuid.UUID) 
 		"time_remaining":    stats.TimeRemaining,
 	}, nil
 }
+
+// GetPendingByGameShortID получает pending лобби по короткому ID игры и пользователю
+func (r *LobbyRepository) GetPendingByGameShortID(ctx context.Context, gameShortID string, userID uint64) (*models.Lobby, error) {
+	query := `
+		SELECT id, game_id, user_id, max_tries, tries_used, bet_amount, potential_reward,
+			status, expires_at, created_at, updated_at,
+			COALESCE(game_short_id, ''), COALESCE(payment_tx_hash, ''), COALESCE(currency, ''), started_at
+		FROM lobbies
+		WHERE game_short_id = $1 AND user_id = $2 AND status = 'pending'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var lobby models.Lobby
+	var startedAt sql.NullTime
+	err := r.db.QueryRowContext(ctx, query, gameShortID, userID).Scan(
+		&lobby.ID,
+		&lobby.GameID,
+		&lobby.UserID,
+		&lobby.MaxTries,
+		&lobby.TriesUsed,
+		&lobby.BetAmount,
+		&lobby.PotentialReward,
+		&lobby.Status,
+		&lobby.ExpiresAt,
+		&lobby.CreatedAt,
+		&lobby.UpdatedAt,
+		&lobby.GameShortID,
+		&lobby.PaymentTxHash,
+		&lobby.Currency,
+		&startedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, models.ErrLobbyNotFound
+		}
+		return nil, fmt.Errorf("failed to get pending lobby: %w", err)
+	}
+
+	if startedAt.Valid {
+		lobby.StartedAt = &startedAt.Time
+	}
+
+	return &lobby, nil
+}
+
+// StartLobby запускает лобби (переводит из pending в active)
+func (r *LobbyRepository) StartLobby(ctx context.Context, id uuid.UUID, expiresAt time.Time) error {
+	now := time.Now()
+	query := `UPDATE lobbies SET status = 'active', started_at = $1, expires_at = $2, updated_at = $3 WHERE id = $4`
+	_, err := r.db.ExecContext(ctx, query, now, expiresAt, now, id)
+	if err != nil {
+		return fmt.Errorf("failed to start lobby: %w", err)
+	}
+	return nil
+}
