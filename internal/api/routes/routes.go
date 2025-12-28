@@ -17,6 +17,12 @@ var (
 	serviceName = os.Getenv("SERVICE_NAME")
 )
 
+// RouterConfig конфигурация роутера
+type RouterConfig struct {
+	AuthEnabled bool
+	BotToken    string
+}
+
 // SetupRouter настраивает маршруты API и middleware
 func SetupRouter(
 	authService models.AuthService,
@@ -26,7 +32,31 @@ func SetupRouter(
 	transactionService models.TransactionService,
 	botToken string,
 ) *gin.Engine {
-	logger.Log.Info("Setting up router")
+	// Обратная совместимость - авторизация включена
+	return SetupRouterWithConfig(
+		authService,
+		userService,
+		gameService,
+		lobbyService,
+		transactionService,
+		RouterConfig{
+			AuthEnabled: true,
+			BotToken:    botToken,
+		},
+	)
+}
+
+// SetupRouterWithConfig настраивает маршруты API с полной конфигурацией
+func SetupRouterWithConfig(
+	authService models.AuthService,
+	userService models.UserService,
+	gameService models.GameService,
+	lobbyService models.LobbyService,
+	transactionService models.TransactionService,
+	config RouterConfig,
+) *gin.Engine {
+	logger.Log.Info("Setting up router",
+		zap.Bool("auth_enabled", config.AuthEnabled))
 
 	router := gin.New()
 
@@ -39,7 +69,7 @@ func SetupRouter(
 	router.Use(metrics.MiddlewareMetrics()) // Middleware для Prometheus метрик
 
 	// Инициализация обработчиков
-	authHandler := handlers.NewAuthHandler(authService, botToken)
+	authHandler := handlers.NewAuthHandler(authService, config.BotToken)
 	userHandler := handlers.NewUserHandler(userService, transactionService)
 	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService)
 	lobbyHandler := handlers.NewLobbyHandler(lobbyService, gameService, userService)
@@ -47,8 +77,12 @@ func SetupRouter(
 
 	logger.Log.Info("Handlers initialized")
 
-	// Middleware для аутентификации
-	authMiddleware := middleware.NewAuthMiddleware(authService, botToken)
+	// Middleware для аутентификации с конфигурацией
+	authMiddleware := middleware.NewAuthMiddlewareWithConfig(authService, middleware.AuthConfig{
+		Enabled:     config.AuthEnabled,
+		BotToken:    config.BotToken,
+		DefaultUser: middleware.DefaultDevUser(),
+	})
 
 	// Публичные маршруты
 	public := router.Group("/api/v1")

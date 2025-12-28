@@ -1,2 +1,23 @@
 .cursor
 node_modules/
+
+# Local config (contains sensitive data)
+configs/config.local.yaml
+config.yaml
+
+# Binary
+wordle
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local

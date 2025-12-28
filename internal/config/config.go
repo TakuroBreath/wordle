@@ -1,125 +1,331 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/logger"
-	"github.com/joho/godotenv"
-	"github.com/kelseyhightower/envconfig"
+	"gopkg.in/yaml.v3"
+)
+
+// Environment тип окружения
+type Environment string
+
+const (
+	EnvDev  Environment = "dev"
+	EnvProd Environment = "prod"
+)
+
+// Network тип сети
+type Network string
+
+const (
+	NetworkTON Network = "ton"
+	NetworkEVM Network = "evm"
 )
 
 // Config представляет конфигурацию приложения
 type Config struct {
-	HTTP       HTTPConfig
-	Postgres   PostgresConfig
-	Redis      RedisConfig
-	Auth       AuthConfig
-	Metrics    MetricsConfig
-	Logging    logger.Config
-	Blockchain BlockchainConfig
+	// Основные настройки
+	Environment     Environment `yaml:"environment"`
+	Network         Network     `yaml:"network"`
+	UseMockProvider bool        `yaml:"use_mock_provider"`
+
+	// Компоненты
+	HTTP       HTTPConfig       `yaml:"http"`
+	Postgres   PostgresConfig   `yaml:"postgres"`
+	Redis      RedisConfig      `yaml:"redis"`
+	Auth       AuthConfig       `yaml:"auth"`
+	Metrics    MetricsConfig    `yaml:"metrics"`
+	Logging    logger.Config    `yaml:"logging"`
+	Blockchain BlockchainConfig `yaml:"blockchain"`
 }
 
 // HTTPConfig представляет конфигурацию HTTP-сервера
 type HTTPConfig struct {
-	Port         string        `envconfig:"HTTP_PORT" default:"8080"`
-	ReadTimeout  time.Duration `envconfig:"HTTP_READ_TIMEOUT" default:"10s"`
-	WriteTimeout time.Duration `envconfig:"HTTP_WRITE_TIMEOUT" default:"10s"`
-	IdleTimeout  time.Duration `envconfig:"HTTP_IDLE_TIMEOUT" default:"60s"`
+	Port         string        `yaml:"port"`
+	ReadTimeout  time.Duration `yaml:"read_timeout"`
+	WriteTimeout time.Duration `yaml:"write_timeout"`
+	IdleTimeout  time.Duration `yaml:"idle_timeout"`
 }
 
 // PostgresConfig представляет конфигурацию PostgreSQL
 type PostgresConfig struct {
-	Host     string `envconfig:"POSTGRES_HOST" default:"localhost"`
-	Port     string `envconfig:"POSTGRES_PORT" default:"5432"`
-	User     string `envconfig:"POSTGRES_USER" default:"postgres"`
-	Password string `envconfig:"POSTGRES_PASSWORD" default:"postgres"`
-	DBName   string `envconfig:"POSTGRES_DB" default:"wordle"`
-	SSLMode  string `envconfig:"POSTGRES_SSLMODE" default:"disable"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	DBName   string `yaml:"db_name"`
+	SSLMode  string `yaml:"ssl_mode"`
 }
 
 // RedisConfig представляет конфигурацию Redis
 type RedisConfig struct {
-	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
-	Port     string `envconfig:"REDIS_PORT" default:"6379"`
-	Password string `envconfig:"REDIS_PASSWORD" default:""`
-	DB       int    `envconfig:"REDIS_DB" default:"0"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 // AuthConfig представляет конфигурацию аутентификации
 type AuthConfig struct {
-	JWTSecret string `envconfig:"JWT_SECRET" default:"super_secret_key"`
-	BotToken  string `envconfig:"BOT_TOKEN" default:"bot_token"`
+	Enabled   bool          `yaml:"enabled"`
+	JWTSecret string        `yaml:"jwt_secret"`
+	BotToken  string        `yaml:"bot_token"`
+	TokenTTL  time.Duration `yaml:"token_ttl"`
 }
 
 // MetricsConfig представляет конфигурацию для метрик Prometheus
 type MetricsConfig struct {
-	Enabled bool   `envconfig:"METRICS_ENABLED" default:"true"`
-	Port    string `envconfig:"METRICS_PORT" default:"9090"`
+	Enabled bool   `yaml:"enabled"`
+	Port    string `yaml:"port"`
 }
 
 // BlockchainConfig представляет конфигурацию блокчейна
 type BlockchainConfig struct {
-	// Provider тип провайдера: "ton", "ethereum", "mock"
-	Provider string `envconfig:"BLOCKCHAIN_PROVIDER" default:"mock"`
-
-	// TON configuration
-	TON TONConfig
-
-	// Ethereum configuration
-	Ethereum EthereumConfig
+	TON      TONConfig      `yaml:"ton"`
+	Ethereum EthereumConfig `yaml:"ethereum"`
 }
 
 // TONConfig конфигурация для TON блокчейна
 type TONConfig struct {
-	// APIEndpoint URL API ноды TON
-	APIEndpoint string `envconfig:"TON_API_ENDPOINT" default:"https://toncenter.com/api/v2"`
-	// APIKey ключ API для доступа к ноде
-	APIKey string `envconfig:"TON_API_KEY" default:""`
-	// MasterWallet адрес мастер-кошелька для выводов
-	MasterWallet string `envconfig:"TON_MASTER_WALLET" default:""`
-	// MasterWalletSecret секрет мастер-кошелька
-	MasterWalletSecret string `envconfig:"TON_MASTER_WALLET_SECRET" default:""`
-	// MinWithdrawTON минимальная сумма вывода в TON
-	MinWithdrawTON float64 `envconfig:"TON_MIN_WITHDRAW" default:"0.1"`
-	// WithdrawFeeTON комиссия за вывод в TON
-	WithdrawFeeTON float64 `envconfig:"TON_WITHDRAW_FEE" default:"0.01"`
-	// RequiredConfirmations количество подтверждений
-	RequiredConfirmations int `envconfig:"TON_REQUIRED_CONFIRMATIONS" default:"1"`
-	// Testnet использовать тестовую сеть
-	Testnet bool `envconfig:"TON_TESTNET" default:"false"`
+	APIEndpoint           string  `yaml:"api_endpoint"`
+	APIKey                string  `yaml:"api_key"`
+	MasterWallet          string  `yaml:"master_wallet"`
+	MasterWalletSecret    string  `yaml:"master_wallet_secret"`
+	MinWithdrawTON        float64 `yaml:"min_withdraw"`
+	WithdrawFeeTON        float64 `yaml:"withdraw_fee"`
+	RequiredConfirmations int     `yaml:"required_confirmations"`
+	Testnet               bool    `yaml:"testnet"`
 }
 
 // EthereumConfig конфигурация для Ethereum блокчейна
 type EthereumConfig struct {
-	// RPCURL URL RPC ноды Ethereum
-	RPCURL string `envconfig:"ETH_RPC_URL" default:""`
-	// ChainID ID сети (1 = mainnet, 5 = goerli, 11155111 = sepolia)
-	ChainID int64 `envconfig:"ETH_CHAIN_ID" default:"1"`
-	// MasterWallet адрес мастер-кошелька
-	MasterWallet string `envconfig:"ETH_MASTER_WALLET" default:""`
-	// PrivateKey приватный ключ мастер-кошелька
-	PrivateKey string `envconfig:"ETH_PRIVATE_KEY" default:""`
-	// MinWithdrawETH минимальная сумма вывода в ETH
-	MinWithdrawETH float64 `envconfig:"ETH_MIN_WITHDRAW" default:"0.01"`
-	// WithdrawFeeETH комиссия за вывод в ETH
-	WithdrawFeeETH float64 `envconfig:"ETH_WITHDRAW_FEE" default:"0.001"`
-	// RequiredConfirmations количество подтверждений
-	RequiredConfirmations int `envconfig:"ETH_REQUIRED_CONFIRMATIONS" default:"12"`
-	// USDTContractAddress адрес контракта USDT (ERC-20)
-	USDTContractAddress string `envconfig:"ETH_USDT_CONTRACT" default:"0xdAC17F958D2ee523a2206206994597C13D831ec7"`
+	RPCURL                string  `yaml:"rpc_url"`
+	ChainID               int64   `yaml:"chain_id"`
+	MasterWallet          string  `yaml:"master_wallet"`
+	PrivateKey            string  `yaml:"private_key"`
+	MinWithdrawETH        float64 `yaml:"min_withdraw"`
+	WithdrawFeeETH        float64 `yaml:"withdraw_fee"`
+	RequiredConfirmations int     `yaml:"required_confirmations"`
+	USDTContractAddress   string  `yaml:"usdt_contract"`
 }
 
-// New создает новую конфигурацию из переменных окружения
-func New() (*Config, error) {
-	_ = godotenv.Load()
-
-	var config Config
-	err := envconfig.Process("", &config)
+// Load загружает конфигурацию из YAML файла
+func Load(configPath string) (*Config, error) {
+	// Читаем файл
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Подставляем переменные окружения
+	configStr := expandEnvVariables(string(data))
+
+	// Парсим YAML
+	var config Config
+	if err := yaml.Unmarshal([]byte(configStr), &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Применяем правила окружения
+	config.applyEnvironmentRules()
+
+	// Валидируем конфигурацию
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &config, nil
+}
+
+// New создает конфигурацию (обратная совместимость)
+// Ищет конфиг файл по приоритету:
+// 1. CONFIG_PATH env variable
+// 2. ./config.yaml
+// 3. ./configs/config.local.yaml
+// 4. ./configs/config.dev.yaml
+func New() (*Config, error) {
+	configPath := os.Getenv("CONFIG_PATH")
+
+	if configPath == "" {
+		// Пробуем найти конфиг файл
+		candidates := []string{
+			"config.yaml",
+			"configs/config.local.yaml",
+			"configs/config.dev.yaml",
+		}
+
+		for _, candidate := range candidates {
+			if _, err := os.Stat(candidate); err == nil {
+				configPath = candidate
+				break
+			}
+		}
+	}
+
+	// Если файл не найден, используем дефолтную конфигурацию
+	if configPath == "" {
+		return defaultConfig(), nil
+	}
+
+	return Load(configPath)
+}
+
+// defaultConfig возвращает конфигурацию по умолчанию (dev режим)
+func defaultConfig() *Config {
+	return &Config{
+		Environment:     EnvDev,
+		Network:         NetworkTON,
+		UseMockProvider: true,
+		HTTP: HTTPConfig{
+			Port:         getEnvOrDefault("HTTP_PORT", "8080"),
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		},
+		Postgres: PostgresConfig{
+			Host:     getEnvOrDefault("POSTGRES_HOST", "localhost"),
+			Port:     getEnvOrDefault("POSTGRES_PORT", "5432"),
+			User:     getEnvOrDefault("POSTGRES_USER", "postgres"),
+			Password: getEnvOrDefault("POSTGRES_PASSWORD", "postgres"),
+			DBName:   getEnvOrDefault("POSTGRES_DB", "wordle"),
+			SSLMode:  getEnvOrDefault("POSTGRES_SSLMODE", "disable"),
+		},
+		Redis: RedisConfig{
+			Host:     getEnvOrDefault("REDIS_HOST", "localhost"),
+			Port:     getEnvOrDefault("REDIS_PORT", "6379"),
+			Password: getEnvOrDefault("REDIS_PASSWORD", ""),
+			DB:       0,
+		},
+		Auth: AuthConfig{
+			Enabled:   false,
+			JWTSecret: getEnvOrDefault("JWT_SECRET", "dev_secret_key"),
+			BotToken:  getEnvOrDefault("BOT_TOKEN", ""),
+			TokenTTL:  24 * time.Hour,
+		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+			Port:    getEnvOrDefault("METRICS_PORT", "9090"),
+		},
+		Logging: logger.Config{
+			Level: "debug",
+		},
+		Blockchain: BlockchainConfig{
+			TON: TONConfig{
+				APIEndpoint:           "https://testnet.toncenter.com/api/v2",
+				Testnet:               true,
+				MinWithdrawTON:        0.1,
+				WithdrawFeeTON:        0.01,
+				RequiredConfirmations: 1,
+			},
+			Ethereum: EthereumConfig{
+				ChainID:               11155111, // Sepolia
+				MinWithdrawETH:        0.01,
+				WithdrawFeeETH:        0.001,
+				RequiredConfirmations: 3,
+			},
+		},
+	}
+}
+
+// applyEnvironmentRules применяет правила на основе окружения и сети
+func (c *Config) applyEnvironmentRules() {
+	// В dev режиме авторизация всегда выключена
+	if c.Environment == EnvDev {
+		c.Auth.Enabled = false
+	}
+
+	// В prod режиме авторизация всегда включена
+	if c.Environment == EnvProd {
+		c.Auth.Enabled = true
+		// В prod не используем mock провайдер
+		c.UseMockProvider = false
+	}
+
+	// Для EVM пока авторизация отключена (в будущем - через кошелёк)
+	if c.Network == NetworkEVM {
+		c.Auth.Enabled = false
+	}
+}
+
+// Validate валидирует конфигурацию
+func (c *Config) Validate() error {
+	// Проверяем обязательные поля для prod
+	if c.Environment == EnvProd {
+		if c.Auth.JWTSecret == "" || c.Auth.JWTSecret == "dev_secret_key" {
+			return fmt.Errorf("JWT_SECRET must be set in production")
+		}
+
+		if c.Network == NetworkTON && c.Auth.BotToken == "" {
+			return fmt.Errorf("BOT_TOKEN must be set for TON network in production")
+		}
+
+		if !c.UseMockProvider {
+			if c.Network == NetworkTON {
+				if c.Blockchain.TON.APIKey == "" {
+					return fmt.Errorf("TON_API_KEY must be set in production")
+				}
+				if c.Blockchain.TON.MasterWallet == "" {
+					return fmt.Errorf("TON_MASTER_WALLET must be set in production")
+				}
+			}
+
+			if c.Network == NetworkEVM {
+				if c.Blockchain.Ethereum.RPCURL == "" {
+					return fmt.Errorf("ETH_RPC_URL must be set in production")
+				}
+				if c.Blockchain.Ethereum.MasterWallet == "" {
+					return fmt.Errorf("ETH_MASTER_WALLET must be set in production")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// IsDev проверяет, является ли окружение dev
+func (c *Config) IsDev() bool {
+	return c.Environment == EnvDev
+}
+
+// IsProd проверяет, является ли окружение prod
+func (c *Config) IsProd() bool {
+	return c.Environment == EnvProd
+}
+
+// IsTON проверяет, используется ли TON сеть
+func (c *Config) IsTON() bool {
+	return c.Network == NetworkTON
+}
+
+// IsEVM проверяет, используется ли EVM сеть
+func (c *Config) IsEVM() bool {
+	return c.Network == NetworkEVM
+}
+
+// IsAuthEnabled проверяет, включена ли авторизация
+func (c *Config) IsAuthEnabled() bool {
+	return c.Auth.Enabled
+}
+
+// GetBlockchainProviderType возвращает тип провайдера блокчейна
+func (c *Config) GetBlockchainProviderType() string {
+	if c.UseMockProvider {
+		return "mock"
+	}
+
+	switch c.Network {
+	case NetworkTON:
+		return "ton"
+	case NetworkEVM:
+		return "ethereum"
+	default:
+		return "mock"
+	}
 }
 
 // DSN возвращает строку подключения к PostgreSQL
@@ -135,4 +341,62 @@ func (p PostgresConfig) DSN() string {
 // Addr возвращает адрес сервера Redis
 func (r RedisConfig) Addr() string {
 	return r.Host + ":" + r.Port
+}
+
+// expandEnvVariables заменяет ${VAR} на значения переменных окружения
+func expandEnvVariables(content string) string {
+	return os.Expand(content, func(key string) string {
+		if value, exists := os.LookupEnv(key); exists {
+			return value
+		}
+		return "${" + key + "}"
+	})
+}
+
+// getEnvOrDefault возвращает значение переменной окружения или дефолтное значение
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// String возвращает строковое представление конфигурации (для логов)
+func (c *Config) String() string {
+	return fmt.Sprintf(
+		"Config{Environment: %s, Network: %s, UseMockProvider: %v, AuthEnabled: %v}",
+		c.Environment, c.Network, c.UseMockProvider, c.Auth.Enabled,
+	)
+}
+
+// GetSupportedCurrencies возвращает поддерживаемые валюты для текущей сети
+func (c *Config) GetSupportedCurrencies() []string {
+	switch c.Network {
+	case NetworkTON:
+		return []string{"TON", "USDT"}
+	case NetworkEVM:
+		return []string{"ETH", "USDT", "USDC"}
+	default:
+		return []string{"TON", "USDT"}
+	}
+}
+
+// ParseEnvironment парсит строку в Environment
+func ParseEnvironment(s string) Environment {
+	switch strings.ToLower(s) {
+	case "prod", "production":
+		return EnvProd
+	default:
+		return EnvDev
+	}
+}
+
+// ParseNetwork парсит строку в Network
+func ParseNetwork(s string) Network {
+	switch strings.ToLower(s) {
+	case "evm", "ethereum", "eth":
+		return NetworkEVM
+	default:
+		return NetworkTON
+	}
 }

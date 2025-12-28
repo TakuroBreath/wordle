@@ -1,0 +1,84 @@
+# Development конфигурация Wordle Betting
+# Режим разработки - авторизация отключена, используется mock провайдер
+
+# Окружение: dev | prod
+environment: dev
+
+# Сеть: ton | evm
+# ton - Telegram Mini App, авторизация через Telegram
+# evm - Web приложение, авторизация через кошелёк (пока отключена)
+network: ton
+
+# Использовать mock провайдер вместо реального блокчейна
+use_mock_provider: true
+
+# HTTP сервер
+http:
+  port: "8080"
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+# PostgreSQL
+postgres:
+  host: localhost
+  port: "5432"
+  user: postgres
+  password: postgres
+  db_name: wordle_dev
+  ssl_mode: disable
+
+# Redis
+redis:
+  host: localhost
+  port: "6379"
+  password: ""
+  db: 0
+
+# Авторизация
+auth:
+  # В dev режиме авторизация отключена
+  enabled: false
+  jwt_secret: dev_secret_key_change_in_production
+  # Telegram Bot Token (для режима ton)
+  bot_token: ""
+  # Время жизни токена
+  token_ttl: 24h
+
+# Метрики Prometheus
+metrics:
+  enabled: true
+  port: "9090"
+
+# Логирование
+logging:
+  level: debug
+  format: console  # console | json
+  output: stdout
+
+# Блокчейн конфигурация
+blockchain:
+  # В dev режиме всегда используется mock
+  # Этот раздел игнорируется если use_mock_provider: true
+
+  # TON конфигурация (для network: ton)
+  ton:
+    api_endpoint: https://testnet.toncenter.com/api/v2
+    api_key: ""
+    master_wallet: ""
+    master_wallet_secret: ""
+    min_withdraw: 0.1
+    withdraw_fee: 0.01
+    required_confirmations: 1
+    testnet: true
+
+  # Ethereum конфигурация (для network: evm)
+  ethereum:
+    rpc_url: ""
+    chain_id: 11155111  # Sepolia testnet
+    master_wallet: ""
+    private_key: ""
+    min_withdraw: 0.01
+    withdraw_fee: 0.001
+    required_confirmations: 3
+    usdt_contract: ""

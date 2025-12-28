@@ -21,6 +21,7 @@ type Config struct {
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
 	BotToken     string
+	AuthEnabled  bool
 }
 
 // Server представляет HTTP-сервер приложения
@@ -31,14 +32,17 @@ type Server struct {
 
 // NewServer создает новый экземпляр сервера
 func NewServer(cfg Config, services *service.ServiceImpl) *Server {
-	// Настройка маршрутов
-	router := routes.SetupRouter(
+	// Настройка маршрутов с конфигурацией
+	router := routes.SetupRouterWithConfig(
 		services.Auth(),
 		services.User(),
 		services.Game(),
 		services.Lobby(),
 		services.Transaction(),
-		cfg.BotToken,
+		routes.RouterConfig{
+			AuthEnabled: cfg.AuthEnabled,
+			BotToken:    cfg.BotToken,
+		},
 	)
 
 	// Создание HTTP-сервера

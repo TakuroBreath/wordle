@@ -40,19 +40,20 @@ type ServiceImpl struct {
 
 // ServiceConfig конфигурация для создания сервисов
 type ServiceConfig struct {
-	JWTSecret  string
-	BotToken   string
-	Blockchain config.BlockchainConfig
+	JWTSecret       string
+	BotToken        string
+	Network         string // "ton" или "evm"
+	UseMockProvider bool
+	Blockchain      config.BlockchainConfig
 }
 
 // NewService создает новый экземпляр Service
 func NewService(repo repository.Repository, redisRepo repository.RedisRepository, jwtSecret, botToken string) Service {
 	return NewServiceWithConfig(repo, redisRepo, ServiceConfig{
-		JWTSecret: jwtSecret,
-		BotToken:  botToken,
-		Blockchain: config.BlockchainConfig{
-			Provider: "mock",
-		},
+		JWTSecret:       jwtSecret,
+		BotToken:        botToken,
+		Network:         "ton",
+		UseMockProvider: true,
 	})
 }
 
@@ -66,7 +67,7 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 	}
 
 	// Инициализация блокчейн провайдера
-	service.blockchainProvider = createBlockchainProvider(cfg.Blockchain)
+	service.blockchainProvider = createBlockchainProviderWithNetwork(cfg.Network, cfg.UseMockProvider, cfg.Blockchain)
 
 	// Инициализация сервисов - сначала создаем базовые сервисы
 	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User(), service.blockchainProvider)
@@ -100,21 +101,21 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 	return service
 }
 
-// createBlockchainProvider создает провайдер блокчейна на основе конфигурации
-func createBlockchainProvider(cfg config.BlockchainConfig) blockchain.BlockchainProvider {
-	switch cfg.Provider {
-	case "ton":
-		return ton.NewTonProvider(ton.Config{
-			APIEndpoint:           cfg.TON.APIEndpoint,
-			APIKey:                cfg.TON.APIKey,
-			MasterWallet:          cfg.TON.MasterWallet,
-			MasterWalletSecret:    cfg.TON.MasterWalletSecret,
-			MinWithdrawTON:        cfg.TON.MinWithdrawTON,
-			WithdrawFeeTON:        cfg.TON.WithdrawFeeTON,
-			RequiredConfirmations: cfg.TON.RequiredConfirmations,
-			Testnet:               cfg.TON.Testnet,
-		})
-	case "ethereum", "eth":
+// createBlockchainProviderWithNetwork создает провайдер блокчейна на основе сети и конфигурации
+func createBlockchainProviderWithNetwork(network string, useMock bool, cfg config.BlockchainConfig) blockchain.BlockchainProvider {
+	// Если включен mock режим, возвращаем mock провайдер
+	if useMock {
+		switch network {
+		case "evm", "ethereum", "eth":
+			return mock.NewMockProvider(blockchain.NetworkEthereum, []string{"ETH", "USDT", "USDC"})
+		default: // ton
+			return mock.NewMockProvider(blockchain.NetworkTON, []string{"TON", "USDT"})
+		}
+	}
+
+	// Реальные провайдеры
+	switch network {
+	case "evm", "ethereum", "eth":
 		return ethereum.NewEthereumProvider(ethereum.Config{
 			RPCURL:                cfg.Ethereum.RPCURL,
 			ChainID:               cfg.Ethereum.ChainID,
@@ -125,11 +126,24 @@ func createBlockchainProvider(cfg config.BlockchainConfig) blockchain.Blockchain
 			RequiredConfirmations: cfg.Ethereum.RequiredConfirmations,
 			USDTContractAddress:   cfg.Ethereum.USDTContractAddress,
 		})
-	case "mock":
-		fallthrough
-	default:
-		return mock.NewMockProvider(blockchain.NetworkTON, []string{"TON", "USDT"})
+	default: // ton
+		return ton.NewTonProvider(ton.Config{
+			APIEndpoint:           cfg.TON.APIEndpoint,
+			APIKey:                cfg.TON.APIKey,
+			MasterWallet:          cfg.TON.MasterWallet,
+			MasterWalletSecret:    cfg.TON.MasterWalletSecret,
+			MinWithdrawTON:        cfg.TON.MinWithdrawTON,
+			WithdrawFeeTON:        cfg.TON.WithdrawFeeTON,
+			RequiredConfirmations: cfg.TON.RequiredConfirmations,
+			Testnet:               cfg.TON.Testnet,
+		})
 	}
+}
+
+// createBlockchainProvider создает провайдер блокчейна (для обратной совместимости)
+// Deprecated: используйте createBlockchainProviderWithNetwork
+func createBlockchainProvider(cfg config.BlockchainConfig) blockchain.BlockchainProvider {
+	return createBlockchainProviderWithNetwork("ton", false, cfg)
 }
 
 // Game возвращает сервис для работы с играми
