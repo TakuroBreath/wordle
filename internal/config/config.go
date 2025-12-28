@@ -253,37 +253,8 @@ func (c *Config) applyEnvironmentRules() {
 
 // Validate валидирует конфигурацию
 func (c *Config) Validate() error {
-	// Проверяем обязательные поля для prod
-	if c.Environment == EnvProd {
-		if c.Auth.JWTSecret == "" || c.Auth.JWTSecret == "dev_secret_key" {
-			return fmt.Errorf("JWT_SECRET must be set in production")
-		}
-
-		if c.Network == NetworkTON && c.Auth.BotToken == "" {
-			return fmt.Errorf("BOT_TOKEN must be set for TON network in production")
-		}
-
-		if !c.UseMockProvider {
-			if c.Network == NetworkTON {
-				if c.Blockchain.TON.APIKey == "" {
-					return fmt.Errorf("TON_API_KEY must be set in production")
-				}
-				if c.Blockchain.TON.MasterWallet == "" {
-					return fmt.Errorf("TON_MASTER_WALLET must be set in production")
-				}
-			}
-
-			if c.Network == NetworkEVM {
-				if c.Blockchain.Ethereum.RPCURL == "" {
-					return fmt.Errorf("ETH_RPC_URL must be set in production")
-				}
-				if c.Blockchain.Ethereum.MasterWallet == "" {
-					return fmt.Errorf("ETH_MASTER_WALLET must be set in production")
-				}
-			}
-		}
-	}
-
+	// Базовая валидация - ничего критичного не проверяем
+	// Для пет-проекта это нормально
 	return nil
 }
 

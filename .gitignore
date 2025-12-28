@@ -1,8 +1,7 @@
 .cursor
 node_modules/
 
-# Local config (contains sensitive data)
-configs/config.local.yaml
+# Symlink to config
 config.yaml
 
 # Binary

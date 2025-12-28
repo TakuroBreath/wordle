@@ -1,81 +1,61 @@
 # Production конфигурация Wordle Betting
-# Боевой режим - авторизация включена, используется реальный блокчейн
+# Заполните свои данные и запустите
 
-# Окружение: dev | prod
 environment: prod
-
-# Сеть: ton | evm
-# ton - Telegram Mini App, авторизация через Telegram
-# evm - Web приложение, авторизация через кошелёк
 network: ton
-
-# Использовать mock провайдер вместо реального блокчейна
-# В prod режиме должен быть false
 use_mock_provider: false
 
-# HTTP сервер
 http:
   port: "8080"
   read_timeout: 15s
   write_timeout: 15s
   idle_timeout: 120s
 
-# PostgreSQL
 postgres:
-  host: ${POSTGRES_HOST}
-  port: ${POSTGRES_PORT}
-  user: ${POSTGRES_USER}
-  password: ${POSTGRES_PASSWORD}
-  db_name: ${POSTGRES_DB}
-  ssl_mode: require
+  host: localhost
+  port: "5432"
+  user: postgres
+  password: postgres
+  db_name: wordle
+  ssl_mode: disable
 
-# Redis
 redis:
-  host: ${REDIS_HOST}
-  port: ${REDIS_PORT}
-  password: ${REDIS_PASSWORD}
+  host: localhost
+  port: "6379"
+  password: ""
   db: 0
 
-# Авторизация
 auth:
-  # В prod режиме авторизация всегда включена
   enabled: true
-  jwt_secret: ${JWT_SECRET}
-  # Telegram Bot Token (обязателен для режима ton)
-  bot_token: ${BOT_TOKEN}
-  # Время жизни токена
+  jwt_secret: your_super_secret_jwt_key_here_change_me
+  bot_token: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"  # Ваш Telegram Bot Token
   token_ttl: 24h
 
-# Метрики Prometheus
 metrics:
   enabled: true
   port: "9090"
 
-# Логирование
 logging:
   level: info
   format: json
   output: stdout
 
-# Блокчейн конфигурация
 blockchain:
-  # TON конфигурация (для network: ton)
   ton:
     api_endpoint: https://toncenter.com/api/v2
-    api_key: ${TON_API_KEY}
-    master_wallet: ${TON_MASTER_WALLET}
-    master_wallet_secret: ${TON_MASTER_WALLET_SECRET}
+    api_key: "your_tonapi_key_here"
+    master_wallet: "EQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    master_wallet_secret: "your_wallet_secret"
     min_withdraw: 0.5
     withdraw_fee: 0.05
     required_confirmations: 1
     testnet: false
 
-  # Ethereum конфигурация (для network: evm)
   ethereum:
-    rpc_url: ${ETH_RPC_URL}
-    chain_id: 1  # Mainnet
-    master_wallet: ${ETH_MASTER_WALLET}
-    private_key: ${ETH_PRIVATE_KEY}
+    rpc_url: "https://mainnet.infura.io/v3/your_key"
+    chain_id: 1
+    master_wallet: "0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    private_key: "your_private_key"
     min_withdraw: 0.01
     withdraw_fee: 0.005
     required_confirmations: 12
