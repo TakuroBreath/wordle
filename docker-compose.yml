@@ -16,8 +16,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     ports:
       - "8080:8080"
       - "9091:9090"  # Prometheus metrics
@@ -58,26 +56,8 @@ services:
     networks:
       - wordle-network
 
-  redis:
-    image: redis:7-alpine
-    container_name: wordle-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - wordle-network
-
 volumes:
   postgres_data:
-  redis_data:
   wordle_logs:
 
 networks:

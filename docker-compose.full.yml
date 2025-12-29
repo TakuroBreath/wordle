@@ -1,7 +1,7 @@
 version: "3.8"
 
 # Полный Docker Compose со всеми сервисами
-# Включает: backend, PostgreSQL, Redis, Prometheus, Grafana, Loki, Promtail
+# Включает: backend, PostgreSQL, Prometheus, Grafana, Loki, Promtail
 #
 # Использование:
 #   docker-compose -f docker-compose.full.yml up -d
@@ -15,8 +15,6 @@ services:
     container_name: wordle-api
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -53,23 +51,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - wordle-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: wordle-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -153,7 +134,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   prometheus_data:
   grafana_data:
   loki_data:

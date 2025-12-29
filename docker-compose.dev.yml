@@ -1,7 +1,7 @@
 version: "3.8"
 
 # Docker Compose для локальной разработки
-# Включает backend, frontend, PostgreSQL, Redis
+# Включает backend, frontend, PostgreSQL
 #
 # Использование:
 #   docker-compose -f docker-compose.dev.yml up -d
@@ -18,8 +18,6 @@ services:
     container_name: wordle-backend
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -76,27 +74,8 @@ services:
     networks:
       - wordle-network
 
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: wordle-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - wordle-network
-
 volumes:
   postgres_data:
-  redis_data:
   wordle_logs:
 
 networks:
