@@ -1,178 +1,286 @@
-# Система мониторинга и логирования Wordle Game
+# Система наблюдаемости Wordle Betting
 
 ## Обзор
 
-Система наблюдаемости (Observability) для Wordle Game состоит из трех компонентов:
+Система наблюдаемости (Observability) для Wordle Betting состоит из двух основных компонентов:
 
 1. **Метрики** - Prometheus + Grafana
-2. **Логирование** - ELK Stack (Elasticsearch, Logstash, Kibana) + Filebeat
-3. **Трейсинг** - Jaeger (OpenTelemetry)
+2. **Логирование** - Loki + Promtail + Grafana
 
-Эта комплексная система обеспечивает полную видимость работы приложения, что позволяет:
-- Отслеживать производительность и доступность сервисов
-- Анализировать ошибки и проблемы в режиме реального времени
-- Получать уведомления о критических ситуациях
-- Визуализировать поведение системы и бизнес-метрики
+Это лёгкое и эффективное решение обеспечивает полную видимость работы приложения:
+- Отслеживание производительности и доступности сервисов
+- Анализ ошибок и проблем в режиме реального времени
+- Визуализация технических и бизнес-метрик
+- Централизованный просмотр логов
 
 ## Архитектура системы
 
 ```
-┌───────────────┐          ┌───────────────┐          ┌───────────────┐
-│               │          │               │          │               │
-│    Grafana    │◀─────────┤   Prometheus  │          │     Kibana    │
-│               │          │               │          │               │
-└───────────────┘          └───────────────┘          └───────────────┘
-                                   ▲                          ▲
-                                   │                          │
-                                   │                          │
-                                   │                  ┌───────────────┐
-                                   │                  │               │
-                                   │                  │ Elasticsearch │
-┌───────────────┐                  │                  │               │
-│               │                  │                  └───────────────┘
-│     Jaeger    │                  │                          ▲
-│               │                  │                          │
-└───────────────┘                  │                          │
-        ▲                          │                  ┌───────────────┐
-        │                          │                  │               │
-        │                          │                  │    Logstash   │
-        │                          │                  │               │
-        │                          │                  └───────────────┘
-        │                          │                          ▲
-        │                          │                          │
-        │                          │                          │
-        │                          │                  ┌───────────────┐
-        │                          │                  │               │
-        │                          │                  │    Filebeat   │
-        │                          │                  │               │
-        │                          │                  └───────────────┘
-        │                          │                          ▲
-        │                          │                          │
-        │                          │                          │
-        │                          │                          │
-┌──────────────────────────────────────────────────────────────────────┐
-│                                                                      │
-│                             Приложение                               │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+                    ┌─────────────────────────────────────────────┐
+                    │                 GRAFANA                      │
+                    │  ┌─────────────┐    ┌─────────────────────┐ │
+                    │  │ Dashboards  │    │    Log Explorer     │ │
+                    │  └─────────────┘    └─────────────────────┘ │
+                    └─────────────────────────────────────────────┘
+                              ▲                      ▲
+                              │                      │
+                    ┌─────────┴─────────┐  ┌────────┴────────┐
+                    │    PROMETHEUS     │  │       LOKI      │
+                    │   (Time Series)   │  │  (Log Storage)  │
+                    └───────────────────┘  └─────────────────┘
+                              ▲                      ▲
+                              │                      │
+                    ┌─────────┴─────────┐  ┌────────┴────────┐
+                    │  /metrics (HTTP)  │  │    PROMTAIL     │
+                    │                   │  │  (Log Shipper)  │
+                    └───────────────────┘  └─────────────────┘
+                              ▲                      ▲
+                              │                      │
+                    ┌─────────┴──────────────────────┴────────┐
+                    │                                          │
+                    │              WORDLE API                   │
+                    │                                          │
+                    │   stdout ────► Console logs (human)      │
+                    │   file ──────► JSON logs (Loki)          │
+                    │   /metrics ──► Prometheus metrics        │
+                    │                                          │
+                    └──────────────────────────────────────────┘
 ```
 
 ## Компоненты
 
 ### Метрики (Prometheus + Grafana)
 
-Prometheus собирает метрики из приложения через HTTP-эндпоинт `/metrics`. Grafana используется для визуализации этих метрик.
+Prometheus собирает метрики из приложения через HTTP-эндпоинт `/metrics`.
 
-#### Собираемые метрики
+#### HTTP-метрики
 
-1. **HTTP-метрики**:
-   - `http_request_duration_seconds` - время выполнения запросов
-   - `http_requests_total` - количество запросов
-   - `errors_total` - количество ошибок
+| Метрика | Тип | Описание |
+|---------|-----|----------|
+| `http_request_duration_seconds` | Histogram | Время выполнения HTTP-запросов |
+| `http_requests_total` | Counter | Общее количество HTTP-запросов |
+| `errors_total` | Counter | Количество ошибок по типам |
 
-2. **Бизнес-метрики**:
-   - `wordle_game_start_total` - количество начатых игр
-   - `wordle_game_complete_total` - количество завершенных игр
-   - `wordle_game_abandoned_total` - количество брошенных игр
-   - `wordle_active_games` - текущее количество активных игр
-   - `wordle_word_guessed_total` - статистика угаданных слов по количеству попыток
+#### Игровые метрики
 
-### Логирование (ELK Stack + Filebeat)
+| Метрика | Тип | Описание |
+|---------|-----|----------|
+| `wordle_game_start_total` | Counter | Количество начатых игр |
+| `wordle_game_complete_total` | Counter | Количество успешно завершённых игр |
+| `wordle_game_abandoned_total` | Counter | Количество брошенных игр |
+| `wordle_active_games` | Gauge | Текущее количество активных игр |
+| `wordle_word_guessed_total` | Counter | Статистика угаданных слов (по кол-ву попыток) |
 
-ELK Stack используется для централизованного сбора, хранения и анализа логов.
+#### Финансовые метрики (Business)
 
-#### Компоненты логирования
+| Метрика | Тип | Labels | Описание |
+|---------|-----|--------|----------|
+| `wordle_deposits_total_amount` | Counter | currency | Общая сумма депозитов |
+| `wordle_deposits_count` | Counter | currency | Количество депозитов |
+| `wordle_withdrawals_total_amount` | Counter | currency | Общая сумма выводов |
+| `wordle_withdrawals_count` | Counter | currency | Количество выводов |
+| `wordle_commissions_total_amount` | Counter | currency | Комиссии (revenue проекта) |
+| `wordle_bets_total_amount` | Counter | currency | Общая сумма ставок |
+| `wordle_bets_count` | Counter | currency | Количество ставок |
+| `wordle_rewards_total_amount` | Counter | currency | Общая сумма выплат |
+| `wordle_rewards_count` | Counter | currency | Количество выплат |
+| `wordle_pending_withdrawals` | Gauge | - | Ожидающие обработки выводы |
+| `wordle_total_users_balance` | Gauge | currency | Общий баланс пользователей |
 
-1. **Filebeat** - собирает логи из Docker-контейнеров
-2. **Logstash** - обрабатывает и фильтрует логи
-3. **Elasticsearch** - хранит и индексирует логи
-4. **Kibana** - визуализирует логи
+### Логирование (Loki + Promtail)
 
-#### Структура логов
+Loki - это лёгкая система агрегации логов от Grafana Labs. В отличие от ELK Stack, Loki не индексирует содержимое логов, а только метаданные (labels), что делает его значительно легче и быстрее.
 
-Логи имеют следующую структуру:
+#### Конфигурация логгера
+
+Приложение использует `zap` логгер с двойным выводом:
+
+1. **Console (stdout)** - человекочитаемый формат для просмотра в контейнере
+2. **JSON (файл)** - структурированные логи для Loki
+
+```yaml
+# Пример конфигурации
+logging:
+  level: info
+  isProduction: true
+  lokiFilePath: /var/log/wordle/app.json  # JSON логи для Loki
+  disableConsole: false                     # Console в stdout
+  disableLokiFile: false                    # JSON в файл
+```
+
+#### Структура JSON логов
 
 ```json
 {
-  "timestamp": "2023-07-27T12:34:56.789Z",
+  "timestamp": "2024-01-15T12:34:56.789Z",
   "level": "info",
-  "message": "Сообщение",
-  "logger": "app",
-  "caller": "app.go:123",
-  "trace_id": "1234567890abcdef",
-  "span_id": "abcdef1234567890",
-  "service": "wordle-api",
-  "method": "GetGame",
-  "game_id": "abc-123-def-456",
-  "user_id": 123456
+  "message": "Processing deposit",
+  "caller": "transaction_service.go:123",
+  "user_id": "abc-123",
+  "amount": 100.5,
+  "currency": "TON"
 }
 ```
 
-### Трейсинг (Jaeger)
+#### Просмотр логов в Grafana
 
-Jaeger используется для трассировки запросов через систему, что позволяет анализировать путь запроса и выявлять узкие места.
+В Grafana доступен Log Explorer с поддержкой LogQL запросов:
+
+```logql
+# Все логи приложения
+{job="wordle"}
+
+# Только ошибки
+{job="wordle"} |= "error"
+
+# Логи определённого уровня
+{job="wordle"} | json | level="error"
+
+# Поиск по сообщению
+{job="wordle"} |= "deposit" | json
+```
 
 ## Запуск системы
 
-Для запуска полной системы мониторинга и логирования:
+### Минимальный вариант (только приложение)
+
+```bash
+docker-compose up -d
+```
+
+### С мониторингом (Prometheus + Grafana + Loki)
 
 ```bash
 docker-compose -f docker-compose.full.yml up -d
 ```
 
+### Только мониторинг (добавить к запущенному приложению)
+
+```bash
+docker-compose -f docker-compose.monitoring.yml up -d
+```
+
 ## Доступ к компонентам
 
-- **Grafana**: http://localhost:3000 (логин: admin, пароль: secret)
-- **Prometheus**: http://localhost:9091
-- **Kibana**: http://localhost:5601
-- **Jaeger UI**: http://localhost:16686
-- **Elasticsearch API**: http://localhost:9200
+| Компонент | URL | Логин/Пароль |
+|-----------|-----|--------------|
+| Grafana | http://localhost:3000 | admin / secret |
+| Prometheus | http://localhost:9090 | - |
+| Loki API | http://localhost:3100 | - |
+| App Metrics | http://localhost:9091/metrics | - |
 
-## Настройка алертов
+## Grafana Dashboards
 
-### Prometheus Alertmanager
+Предустановленный дашборд **Wordle Betting Dashboard** включает:
 
-Alertmanager настроен на отправку уведомлений при следующих событиях:
-- Высокая латентность API (>1s)
-- Высокая частота ошибок (>5%)
-- Недоступность сервисов
+### HTTP Metrics
+- Requests per second (RPS)
+- Request duration (p95)
 
-### Logstash алерты
+### Game Metrics
+- Active games
+- Games started / completed / abandoned
+- Word guessed distribution
 
-Настроена отправка уведомлений при возникновении критических ошибок (уровень логирования: ERROR, FATAL).
+### Financial Metrics (Business)
+- Total deposits / withdrawals
+- Revenue (commissions)
+- Pending withdrawals
+- Deposits vs Withdrawals by currency
+- Bets vs Rewards
+- Total users balance
 
-## Дашборды
+### Application Logs
+- Live log stream
+- Error logs filter
+- Log level distribution
 
-### Grafana
+## Просмотр логов в контейнере
 
-1. **Обзор системы** - общая статистика по сервисам
-2. **API-метрики** - детальная информация по API-запросам
-3. **Бизнес-метрики** - статистика игр и пользовательской активности
-4. **Ресурсы** - мониторинг потребления ресурсов (CPU, память, диск)
+Благодаря console выводу, логи можно читать прямо в контейнере:
 
-### Kibana
+```bash
+# Посмотреть логи в реальном времени
+docker logs -f wordle-api
 
-1. **Логи по уровням** - визуализация логов по уровням (INFO, WARN, ERROR, FATAL)
-2. **Ошибки** - детальный анализ ошибок
-3. **Бизнес-события** - анализ бизнес-событий по типам
+# Пример вывода (человекочитаемый формат):
+# 12:34:56.789  INFO  Processing deposit  {"user_id": "abc", "amount": 100}
+# 12:34:56.890  ERROR Failed to process  {"error": "insufficient funds"}
+```
 
-## Интеграция компонентов
+## Файловая структура
 
-Система наблюдаемости интегрирована следующим образом:
-1. **Корреляция логов и трейсов** - все логи содержат trace_id и span_id
-2. **Метрики и алерты** - алерты Prometheus могут быть настроены на основе метрик
-3. **Визуализация трейсов в Grafana** - Grafana может отображать трейсы из Jaeger
+```
+configs/
+├── grafana/
+│   ├── dashboards/
+│   │   └── wordle.json           # Дашборд
+│   └── provisioning/
+│       ├── dashboards/
+│       │   └── dashboards.yml    # Автозагрузка дашбордов
+│       └── datasources/
+│           ├── prometheus.yml    # Datasource Prometheus
+│           └── loki.yml          # Datasource Loki
+├── loki/
+│   └── loki-config.yaml          # Конфигурация Loki
+├── prometheus/
+│   └── prometheus.yml            # Конфигурация Prometheus
+└── promtail/
+    └── promtail-config.yaml      # Конфигурация Promtail
+```
 
-## Рекомендации по использованию
+## Конфигурация
 
-1. **Мониторинг в реальном времени** - используйте дашборды Grafana для мониторинга системы в реальном времени
-2. **Анализ инцидентов** - используйте Kibana для анализа логов и Jaeger для анализа трейсов при расследовании инцидентов
-3. **Настройка алертов** - настраивайте алерты для раннего обнаружения проблем
-4. **Регулярный аудит** - регулярно анализируйте метрики и логи для выявления потенциальных проблем
+### Prometheus targets
 
-## Развитие системы
+```yaml
+# configs/prometheus/prometheus.yml
+scrape_configs:
+  - job_name: 'wordle-app'
+    static_configs:
+      - targets: ['app:9090']
+    metrics_path: '/metrics'
+```
 
-Рекомендации по развитию системы наблюдаемости:
-1. Добавить распределенное трейсинг для микросервисов
-2. Интегрировать системы с внешними сервисами мониторинга (Datadog, New Relic)
-3. Настроить автоматические действия при алертах (автомасштабирование, автоматическое восстановление) 
+### Promtail scrape
+
+```yaml
+# configs/promtail/promtail-config.yaml
+scrape_configs:
+  - job_name: wordle_app
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: wordle
+          __path__: /var/log/wordle/*.json
+```
+
+## Retention (хранение данных)
+
+| Компонент | Retention | Настройка |
+|-----------|-----------|-----------|
+| Prometheus | 15 дней | `--storage.tsdb.retention.time` |
+| Loki | 7 дней | `compactor.retention_period` |
+
+## Рекомендации
+
+1. **Мониторинг в реальном времени** - используйте Grafana дашборды
+2. **Анализ ошибок** - используйте Log Explorer в Grafana с фильтром по level="error"
+3. **Бизнес-аналитика** - отслеживайте финансовые метрики для понимания unit-экономики
+4. **Отладка в контейнере** - используйте `docker logs -f` для быстрого просмотра
+
+## Почему Loki вместо ELK?
+
+| Характеристика | ELK Stack | Loki |
+|----------------|-----------|------|
+| Потребление RAM | ~2-4 GB | ~200-500 MB |
+| Потребление диска | Высокое (индексы) | Низкое |
+| Сложность настройки | Высокая | Низкая |
+| Интеграция с Grafana | Через плагин | Нативная |
+| Полнотекстовый поиск | Да | Нет (но есть grep-like) |
+| Стоимость | Бесплатно / Платно | Бесплатно |
+
+Для данного проекта Loki является оптимальным выбором, так как:
+- Проект небольшой, не требует полнотекстового поиска
+- Grafana уже используется для метрик
+- Минимальное потребление ресурсов

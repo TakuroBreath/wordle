@@ -1,65 +1,45 @@
 version: "3.8"
 
+# Полный Docker Compose со всеми сервисами
+# Включает: backend, PostgreSQL, Redis, Prometheus, Grafana, Loki, Promtail
+#
+# Использование:
+#   docker-compose -f docker-compose.full.yml up -d
+
 services:
+  # ========================
+  # Приложение
+  # ========================
   app:
     build: .
-    container_name: wordle-app
+    container_name: wordle-api
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     ports:
       - "8080:8080"
-      - "9090:9090"
+      - "9091:9090"  # Prometheus metrics
     environment:
-      HTTP_PORT: 8080
-      HTTP_READ_TIMEOUT: 10s
-      HTTP_WRITE_TIMEOUT: 10s
-      HTTP_IDLE_TIMEOUT: 60s
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: wordle
-      POSTGRES_SSLMODE: disable
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      REDIS_DB: 0
-      JWT_SECRET: your-jwt-secret
-      BOT_TOKEN: 7613582783:AAE5_-7beHhGHQi60PIPAfddMGecE_Dnmq0
-      TONAPI_KEY: AEGOUR3VZ55ERHAAAAAMTQ2R57ID43WZOBVAJLBOSMKRV52G26CT7PLHQG6NOOTU432NYVQ
-      SERVICE_NAME: wordle-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
-      INSECURE_MODE: "true"
-      LOG_LEVEL: info
-      LOG_FORMAT: json
-      LOG_OUTPUT: stdout
-      PRODUCTION: "true"
-      METRICS_ENABLED: "true"
-      METRICS_PORT: 9090
+      CONFIG_PATH: /app/config.yaml
+    volumes:
+      - ./configs/config.docker.yaml:/app/config.yaml:ro
+      - wordle_logs:/var/log/wordle
     restart: unless-stopped
-    networks:
-      - wordle-network
-      - monitoring
-      - logging
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    ports:
-      - "16686:16686" # UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - wordle-network
       - monitoring
 
+  # ========================
+  # Базы данных
+  # ========================
   postgres:
     image: postgres:15-alpine
     container_name: wordle-postgres
@@ -72,7 +52,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -89,7 +69,7 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -97,12 +77,14 @@ services:
     networks:
       - wordle-network
 
-  # Мониторинг
+  # ========================
+  # Мониторинг (Prometheus + Grafana)
+  # ========================
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
     ports:
-      - "9091:9090"
+      - "9090:9090"
     volumes:
       - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -133,93 +115,52 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+      - loki
     networks:
       - monitoring
 
-  # Логирование
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.4
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+  # ========================
+  # Логирование (Loki + Promtail)
+  # ========================
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
     ports:
-      - "9200:9200"
-    networks:
-      - logging
-    restart: unless-stopped
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.10.4
-    container_name: logstash
+      - "3100:3100"
     volumes:
-      - ./configs/logstash/pipeline:/usr/share/logstash/pipeline
-      - ./configs/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
-    ports:
-      - "5044:5044"
-      - "5001:5001/tcp"
-      - "5001:5001/udp"
-      - "9600:9600"
-    environment:
-      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
-    networks:
-      - logging
-    depends_on:
-      - elasticsearch
+      - ./configs/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
     restart: unless-stopped
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.10.4
-    container_name: kibana
-    ports:
-      - "5601:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     networks:
-      - logging
-    depends_on:
-      - elasticsearch
-    restart: unless-stopped
+      - monitoring
 
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:8.10.4
-    container_name: filebeat
-    user: root
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: promtail
     volumes:
-      - ./configs/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./configs/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - wordle_logs:/var/log/wordle:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - filebeat_data:/usr/share/filebeat/data
-    command: [ "--strict.perms=false" ]
-    networks:
-      - logging
-      - wordle-network
-    depends_on:
-      - elasticsearch
-      - logstash
+    command: -config.file=/etc/promtail/config.yaml
     restart: unless-stopped
+    depends_on:
+      - loki
+    networks:
+      - monitoring
+      - wordle-network
 
 volumes:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
-  elasticsearch_data:
-  filebeat_data:
-
+  loki_data:
+  wordle_logs:
 
 networks:
   wordle-network:
     driver: bridge
   monitoring:
-    driver: bridge
-  logging:
     driver: bridge

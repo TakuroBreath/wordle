@@ -37,8 +37,14 @@ metrics:
 
 logging:
   level: debug
-  format: console
-  output: stdout
+  isProduction: false
+  lokiFilePath: logs/app.json
+  maxSize: 100
+  maxBackups: 30
+  maxAge: 7
+  compress: true
+  disableConsole: false
+  disableLokiFile: true  # В dev режиме файл для Loki не нужен
 
 blockchain:
   ton:

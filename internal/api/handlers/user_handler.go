@@ -6,9 +6,7 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/models"
-	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // UserHandler представляет обработчики для пользователей
@@ -33,17 +31,11 @@ func NewUserHandler(
 
 // GetCurrentUser возвращает данные текущего пользователя
 func (h *UserHandler) GetCurrentUser(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetCurrentUser")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	user, exists := middleware.GetCurrentUser(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
 	}
-
-	span.SetAttributes(attribute.Int64("user_id", int64(user.TelegramID)))
 
 	c.JSON(http.StatusOK, gin.H{
 		"telegram_id":        user.TelegramID,
@@ -114,10 +106,6 @@ func (h *UserHandler) GetUserBalance(c *gin.Context) {
 
 // ConnectWallet подключает TON кошелёк пользователя
 func (h *UserHandler) ConnectWallet(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.ConnectWallet")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -152,10 +140,6 @@ func (h *UserHandler) ConnectWallet(c *gin.Context) {
 
 // GetDepositInfo возвращает информацию для пополнения баланса
 func (h *UserHandler) GetDepositInfo(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetDepositInfo")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -197,10 +181,6 @@ func (h *UserHandler) GetDepositInfo(c *gin.Context) {
 
 // RequestWithdraw обрабатывает запрос на вывод средств
 func (h *UserHandler) RequestWithdraw(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.RequestWithdraw")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})

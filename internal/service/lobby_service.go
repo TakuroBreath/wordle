@@ -151,6 +151,9 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 		log.Error("Failed to create bet transaction", zap.Error(err))
 	}
 
+	// Записываем ставку в метрики
+	metrics.RecordBet(game.Currency, lobby.BetAmount)
+
 	// Создаём лобби
 	now := time.Now()
 	expiresAt := now.Add(time.Duration(game.TimeLimit) * time.Minute)
@@ -489,6 +492,9 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 		}
 		_ = s.transactionService.CreateTransaction(ctx, rewardTx)
 
+		// Записываем награду в метрики
+		metrics.RecordReward(game.Currency, reward)
+
 		// Обновляем статистику пользователя
 		_ = s.userService.IncrementWins(ctx, lobby.UserID)
 
@@ -506,8 +512,10 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 		commission := lobby.BetAmount * s.commissionRate
 
 		// Начисляем комиссию сервису (в реальности - отдельный кошелёк)
-		// Здесь просто логируем
 		log.Info("Commission earned", zap.Float64("amount", commission))
+
+		// Записываем комиссию (revenue) в метрики
+		metrics.RecordCommission(game.Currency, commission)
 
 		// Обновляем статистику пользователя
 		_ = s.userService.IncrementLosses(ctx, lobby.UserID)

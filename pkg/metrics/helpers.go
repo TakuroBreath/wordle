@@ -78,3 +78,61 @@ func RecordError(errorType string) {
 		registry.ErrorsTotal.WithLabelValues(errorType).Inc()
 	}
 }
+
+// RecordDeposit записывает успешный депозит
+func RecordDeposit(currency string, amount float64) {
+	if registry != nil {
+		registry.DepositsTotal.WithLabelValues(currency).Add(amount)
+		registry.DepositsCount.WithLabelValues(currency).Inc()
+	}
+}
+
+// RecordWithdrawal записывает успешный вывод
+func RecordWithdrawal(currency string, amount float64) {
+	if registry != nil {
+		registry.WithdrawalsTotal.WithLabelValues(currency).Add(amount)
+		registry.WithdrawalsCount.WithLabelValues(currency).Inc()
+	}
+}
+
+// RecordCommission записывает комиссию (revenue)
+func RecordCommission(currency string, amount float64) {
+	if registry != nil {
+		registry.CommissionsTotal.WithLabelValues(currency).Add(amount)
+	}
+}
+
+// RecordBet записывает ставку
+func RecordBet(currency string, amount float64) {
+	if registry != nil {
+		registry.BetsTotal.WithLabelValues(currency).Add(amount)
+	}
+}
+
+// RecordReward записывает выплату игроку
+func RecordReward(currency string, amount float64) {
+	if registry != nil {
+		registry.RewardsTotal.WithLabelValues(currency).Add(amount)
+	}
+}
+
+// IncrementPendingWithdrawals увеличивает счётчик ожидающих выводов
+func IncrementPendingWithdrawals() {
+	if registry != nil {
+		registry.PendingWithdrawals.Inc()
+	}
+}
+
+// DecrementPendingWithdrawals уменьшает счётчик ожидающих выводов
+func DecrementPendingWithdrawals() {
+	if registry != nil {
+		registry.PendingWithdrawals.Dec()
+	}
+}
+
+// SetTotalUsersBalance устанавливает общий баланс пользователей
+func SetTotalUsersBalance(currency string, balance float64) {
+	if registry != nil {
+		registry.TotalUsersBalance.WithLabelValues(currency).Set(balance)
+	}
+}

@@ -2,10 +2,10 @@ package logger
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -20,17 +20,23 @@ var SugaredLog *zap.SugaredLogger
 // Config содержит конфигурацию логгера
 type Config struct {
 	Level        string `yaml:"level" env:"LOG_LEVEL" env-default:"info"`
-	Format       string `yaml:"format" env:"LOG_FORMAT" env-default:"json"`
-	Output       string `yaml:"output" env:"LOG_OUTPUT" env-default:"stdout"`
 	IsProduction bool   `yaml:"isProduction" env:"PRODUCTION" env-default:"false"`
-	FilePath     string `yaml:"filePath" env:"LOG_FILE_PATH" env-default:"logs/app.log"`
-	MaxSize      int    `yaml:"maxSize" env:"LOG_MAX_SIZE" env-default:"100"` // в МБ
-	MaxBackups   int    `yaml:"maxBackups" env:"LOG_MAX_BACKUPS" env-default:"30"`
-	MaxAge       int    `yaml:"maxAge" env:"LOG_MAX_AGE" env-default:"30"` // в днях
-	Compress     bool   `yaml:"compress" env:"LOG_COMPRESS" env-default:"true"`
+	// Путь к JSON логам для Loki (если пусто - JSON не пишется)
+	LokiFilePath string `yaml:"lokiFilePath" env:"LOG_LOKI_FILE_PATH" env-default:"logs/app.json"`
+	// Настройки ротации для JSON файла
+	MaxSize    int  `yaml:"maxSize" env:"LOG_MAX_SIZE" env-default:"100"` // в МБ
+	MaxBackups int  `yaml:"maxBackups" env:"LOG_MAX_BACKUPS" env-default:"30"`
+	MaxAge     int  `yaml:"maxAge" env:"LOG_MAX_AGE" env-default:"7"` // в днях
+	Compress   bool `yaml:"compress" env:"LOG_COMPRESS" env-default:"true"`
+	// Отключить консольный вывод (для тестов)
+	DisableConsole bool `yaml:"disableConsole" env:"LOG_DISABLE_CONSOLE" env-default:"false"`
+	// Отключить JSON вывод в файл
+	DisableLokiFile bool `yaml:"disableLokiFile" env:"LOG_DISABLE_LOKI_FILE" env-default:"false"`
 }
 
-// Init initializes the global logger
+// Init initializes the global logger with dual output:
+// - Console (human-readable) → stdout
+// - JSON (structured) → file for Loki/Promtail
 func Init(cfg Config) {
 	// Определяем уровень логирования
 	level := zap.InfoLevel
@@ -47,44 +53,67 @@ func Init(cfg Config) {
 		level = zap.FatalLevel
 	}
 
-	// Настройка вывода логов
-	var sink zapcore.WriteSyncer
-	if cfg.Output == "file" {
-		// Настройка ротации логов
+	var cores []zapcore.Core
+
+	// Console encoder для человекочитаемого вывода в stdout
+	if !cfg.DisableConsole {
+		consoleEncoderConfig := zapcore.EncoderConfig{
+			TimeKey:        "T",
+			LevelKey:       "L",
+			NameKey:        "N",
+			CallerKey:      "C",
+			FunctionKey:    zapcore.OmitKey,
+			MessageKey:     "M",
+			StacktraceKey:  "S",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.CapitalColorLevelEncoder, // Цветной вывод уровней
+			EncodeTime:     zapcore.TimeEncoderOfLayout("15:04:05.000"),
+			EncodeDuration: zapcore.StringDurationEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		}
+		consoleEncoder := zapcore.NewConsoleEncoder(consoleEncoderConfig)
+		consoleCore := zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), level)
+		cores = append(cores, consoleCore)
+	}
+
+	// JSON encoder для Loki (через файл, который читает Promtail)
+	if !cfg.DisableLokiFile && cfg.LokiFilePath != "" {
+		jsonEncoderConfig := zapcore.EncoderConfig{
+			TimeKey:        "timestamp",
+			LevelKey:       "level",
+			NameKey:        "logger",
+			CallerKey:      "caller",
+			FunctionKey:    zapcore.OmitKey,
+			MessageKey:     "message",
+			StacktraceKey:  "stacktrace",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.LowercaseLevelEncoder,
+			EncodeTime:     zapcore.ISO8601TimeEncoder,
+			EncodeDuration: zapcore.MillisDurationEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		}
+
+		// Настройка ротации логов для JSON файла
 		rotator := &lumberjack.Logger{
-			Filename:   cfg.FilePath,
+			Filename:   cfg.LokiFilePath,
 			MaxSize:    cfg.MaxSize,    // мегабайты
 			MaxBackups: cfg.MaxBackups, // количество бэкапов
 			MaxAge:     cfg.MaxAge,     // дни
 			Compress:   cfg.Compress,   // сжатие
 		}
-		sink = zapcore.AddSync(rotator)
-	} else {
-		sink = zapcore.AddSync(os.Stdout)
+
+		jsonEncoder := zapcore.NewJSONEncoder(jsonEncoderConfig)
+		jsonCore := zapcore.NewCore(jsonEncoder, zapcore.AddSync(rotator), level)
+		cores = append(cores, jsonCore)
 	}
 
-	// Конфигурация энкодера
-	var encoder zapcore.Encoder
-	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "timestamp",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		FunctionKey:    zapcore.OmitKey,
-		MessageKey:     "message",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.MillisDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
+	// Если нет ни одного core, создаем nop core
+	if len(cores) == 0 {
+		cores = append(cores, zapcore.NewNopCore())
 	}
 
-	// Всегда используем JSON формат для лучшей совместимости с ELK
-	encoder = zapcore.NewJSONEncoder(encoderConfig)
-
-	// Создаем ядро логгера
-	core := zapcore.NewCore(encoder, sink, level)
+	// Объединяем все ядра
+	core := zapcore.NewTee(cores...)
 
 	// Дополнительные опции
 	opts := []zap.Option{
@@ -102,20 +131,43 @@ func Init(cfg Config) {
 
 	Log.Info("Logger initialized",
 		zap.String("level", cfg.Level),
-		zap.String("format", cfg.Format),
-		zap.String("output", cfg.Output),
-		zap.Bool("production", cfg.IsProduction))
+		zap.Bool("production", cfg.IsProduction),
+		zap.Bool("console_enabled", !cfg.DisableConsole),
+		zap.Bool("loki_file_enabled", !cfg.DisableLokiFile),
+		zap.String("loki_file_path", cfg.LokiFilePath))
 }
 
 // InitDefault инициализирует логгер с настройками по умолчанию
 func InitDefault() {
 	config := Config{
-		Level:        "info",
-		Format:       "json",
-		Output:       "stdout",
-		IsProduction: false,
+		Level:          "info",
+		IsProduction:   false,
+		LokiFilePath:   "logs/app.json",
+		DisableConsole: false,
 	}
 	Init(config)
+}
+
+// InitForTesting инициализирует логгер для тестов (выводит в io.Writer)
+func InitForTesting(w io.Writer) {
+	consoleEncoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "T",
+		LevelKey:       "L",
+		NameKey:        "N",
+		CallerKey:      "C",
+		MessageKey:     "M",
+		StacktraceKey:  "S",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeTime:     zapcore.TimeEncoderOfLayout("15:04:05.000"),
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+	consoleEncoder := zapcore.NewConsoleEncoder(consoleEncoderConfig)
+	core := zapcore.NewCore(consoleEncoder, zapcore.AddSync(w), zap.DebugLevel)
+
+	Log = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+	SugaredLog = Log.Sugar()
 }
 
 // GetLogger returns a logger with added fields
@@ -127,14 +179,14 @@ func GetLogger(fields ...zap.Field) *zap.Logger {
 }
 
 // GetSugaredLogger returns a sugared logger with added fields
-func GetSugaredLogger(keysAndValues ...interface{}) *zap.SugaredLogger {
+func GetSugaredLogger(keysAndValues ...any) *zap.SugaredLogger {
 	if SugaredLog == nil {
 		InitDefault()
 	}
 	return SugaredLog.With(keysAndValues...)
 }
 
-// WithContext обогащает лог контекстом и информацией о трейсинге
+// WithContext обогащает лог контекстом
 func WithContext(ctx context.Context) *zap.Logger {
 	if Log == nil {
 		InitDefault()
@@ -142,18 +194,19 @@ func WithContext(ctx context.Context) *zap.Logger {
 
 	fields := []zap.Field{}
 
-	// Добавляем trace_id и span_id, если они есть в контексте
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		traceID := span.SpanContext().TraceID().String()
-		spanID := span.SpanContext().SpanID().String()
-		fields = append(fields,
-			zap.String("trace_id", traceID),
-			zap.String("span_id", spanID))
+	// Добавляем request_id если есть в контексте
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if id, ok := reqID.(string); ok && id != "" {
+			fields = append(fields, zap.String("request_id", id))
+		}
 	}
 
-	// Можно добавить другие поля из контекста
-	// Например, user_id, request_id и т.д., если они есть в контексте
+	// Добавляем user_id если есть в контексте
+	if userID := ctx.Value("user_id"); userID != nil {
+		if id, ok := userID.(string); ok && id != "" {
+			fields = append(fields, zap.String("user_id", id))
+		}
+	}
 
 	return Log.With(fields...)
 }

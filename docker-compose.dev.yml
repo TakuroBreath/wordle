@@ -1,10 +1,13 @@
 version: "3.8"
 
 # Docker Compose для локальной разработки
-# Включает backend, frontend, PostgreSQL, Redis и Jaeger
+# Включает backend, frontend, PostgreSQL, Redis
 #
 # Использование:
 #   docker-compose -f docker-compose.dev.yml up -d
+#
+# Для мониторинга добавьте:
+#   docker-compose -f docker-compose.dev.yml -f docker-compose.monitoring.yml up -d
 
 services:
   # Backend API
@@ -18,16 +21,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     ports:
       - "8080:8080"
-      - "9090:9090"
+      - "9090:9090"  # Prometheus metrics
     environment:
       CONFIG_PATH: /app/config.yaml
     volumes:
       # Монтируем конфиг файл
       - ./configs/config.docker.yaml:/app/config.yaml:ro
+      # Том для JSON логов
+      - wordle_logs:/var/log/wordle
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -91,22 +94,10 @@ services:
     networks:
       - wordle-network
 
-  # Jaeger (Tracing)
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    ports:
-      - "16686:16686" # UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks:
-      - wordle-network
-
 volumes:
   postgres_data:
   redis_data:
+  wordle_logs:
 
 networks:
   wordle-network:

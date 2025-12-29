@@ -17,12 +17,23 @@ type MetricsRegistry struct {
 	RequestTotal    *prometheus.CounterVec
 	ErrorsTotal     *prometheus.CounterVec
 
-	// Бизнес-метрики
+	// Бизнес-метрики игр
 	GameStartTotal      prometheus.Counter
 	GameCompleteTotal   prometheus.Counter
 	GameAbandonedTotal  prometheus.Counter
 	ActiveGamesGauge    prometheus.Gauge
 	WordGuessedCounters *prometheus.CounterVec
+
+	// Финансовые метрики
+	DepositsTotal     *prometheus.CounterVec // Сумма депозитов по валюте
+	DepositsCount     *prometheus.CounterVec // Количество депозитов по валюте
+	WithdrawalsTotal  *prometheus.CounterVec // Сумма выводов по валюте
+	WithdrawalsCount  *prometheus.CounterVec // Количество выводов по валюте
+	CommissionsTotal  *prometheus.CounterVec // Комиссии (revenue) по валюте
+	BetsTotal         *prometheus.CounterVec // Сумма ставок по валюте
+	RewardsTotal      *prometheus.CounterVec // Сумма выплат по валюте
+	PendingWithdrawals prometheus.Gauge       // Количество ожидающих выводов
+	TotalUsersBalance *prometheus.GaugeVec   // Общий баланс пользователей по валюте
 }
 
 // NewMetricsRegistry создает и регистрирует все метрики
@@ -52,7 +63,7 @@ func NewMetricsRegistry() *MetricsRegistry {
 			[]string{"type"},
 		),
 
-		// Бизнес-метрики
+		// Бизнес-метрики игр
 		GameStartTotal: promauto.NewCounter(
 			prometheus.CounterOpts{
 				Name: "wordle_game_start_total",
@@ -83,6 +94,70 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Help: "Статистика угаданных слов",
 			},
 			[]string{"attempts"},
+		),
+
+		// Финансовые метрики
+		DepositsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_deposits_total_amount",
+				Help: "Общая сумма депозитов по валюте",
+			},
+			[]string{"currency"},
+		),
+		DepositsCount: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_deposits_count",
+				Help: "Количество депозитов по валюте",
+			},
+			[]string{"currency"},
+		),
+		WithdrawalsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_withdrawals_total_amount",
+				Help: "Общая сумма выводов по валюте",
+			},
+			[]string{"currency"},
+		),
+		WithdrawalsCount: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_withdrawals_count",
+				Help: "Количество выводов по валюте",
+			},
+			[]string{"currency"},
+		),
+		CommissionsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_commissions_total_amount",
+				Help: "Общая сумма комиссий (revenue) по валюте",
+			},
+			[]string{"currency"},
+		),
+		BetsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_bets_total_amount",
+				Help: "Общая сумма ставок по валюте",
+			},
+			[]string{"currency"},
+		),
+		RewardsTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_rewards_total_amount",
+				Help: "Общая сумма выплат игрокам по валюте",
+			},
+			[]string{"currency"},
+		),
+		PendingWithdrawals: promauto.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "wordle_pending_withdrawals",
+				Help: "Количество ожидающих обработки выводов",
+			},
+		),
+		TotalUsersBalance: promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "wordle_total_users_balance",
+				Help: "Общий баланс всех пользователей по валюте",
+			},
+			[]string{"currency"},
 		),
 	}
 

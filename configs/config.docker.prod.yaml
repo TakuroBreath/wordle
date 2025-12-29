@@ -40,8 +40,14 @@ metrics:
 
 logging:
   level: info
-  format: json
-  output: stdout
+  isProduction: true
+  lokiFilePath: /var/log/wordle/app.json
+  maxSize: 100
+  maxBackups: 30
+  maxAge: 7
+  compress: true
+  disableConsole: false
+  disableLokiFile: false
 
 blockchain:
   ton:
