@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/logger"
@@ -18,34 +21,54 @@ import (
 
 // GameServiceImpl представляет собой реализацию GameService
 type GameServiceImpl struct {
-	gameRepo    models.GameRepository
-	redisRepo   repository.RedisRepository
-	userService models.UserService
-	logger      *zap.Logger
+	gameRepo       models.GameRepository
+	redisRepo      repository.RedisRepository
+	userService    models.UserService
+	tonService     models.TONService
+	commissionRate float64
+	logger         *zap.Logger
 }
 
 // NewGameService создает новый экземпляр GameService
-func NewGameService(gameRepo models.GameRepository, redisRepo repository.RedisRepository, userService models.UserService) models.GameService {
+func NewGameService(
+	gameRepo models.GameRepository,
+	redisRepo repository.RedisRepository,
+	userService models.UserService,
+	tonService models.TONService,
+	commissionRate float64,
+) models.GameService {
 	return &GameServiceImpl{
-		gameRepo:    gameRepo,
-		redisRepo:   redisRepo,
-		userService: userService,
-		logger:      logger.GetLogger(zap.String("service", "game")),
+		gameRepo:       gameRepo,
+		redisRepo:      redisRepo,
+		userService:    userService,
+		tonService:     tonService,
+		commissionRate: commissionRate,
+		logger:         logger.GetLogger(zap.String("service", "game")),
 	}
+}
+
+// generateShortID генерирует короткий уникальный ID
+func generateShortID() string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	result := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		result[i] = chars[n.Int64()]
+	}
+	return string(result)
 }
 
 // CreateGame создает новую игру
 func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) error {
 	log := s.logger.With(zap.String("method", "CreateGame"))
 
-	// Оборачиваем метод сервиса в трейсинг
 	return WithTracingVoid(ctx, "GameService", "CreateGame", func(ctx context.Context) error {
 		if game == nil {
 			log.Error("Game is nil")
 			return errors.New("game is nil")
 		}
 
-		// Добавляем информацию о создаваемой игре в текущий span
+		// Добавляем информацию в span
 		span := otel.SpanFromContext(ctx)
 		otel.AddAttributesToSpan(span,
 			attribute.Int64("creator_id", int64(game.CreatorID)),
@@ -53,16 +76,17 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 			attribute.Int("length", game.Length),
 			attribute.String("difficulty", game.Difficulty),
 			attribute.Int("max_tries", game.MaxTries),
+			attribute.Int("time_limit", game.TimeLimit),
 			attribute.String("title", game.Title),
 			attribute.Float64("min_bet", game.MinBet),
 			attribute.Float64("max_bet", game.MaxBet),
 			attribute.Float64("reward_multiplier", game.RewardMultiplier),
+			attribute.Float64("deposit_amount", game.DepositAmount),
 			attribute.String("currency", game.Currency),
 		)
 
 		log.Info("Creating new game",
-			zap.String("creator_id", fmt.Sprintf("%d", game.CreatorID)),
-			zap.String("word", game.Word),
+			zap.Uint64("creator_id", game.CreatorID),
 			zap.String("title", game.Title),
 			zap.Float64("min_bet", game.MinBet),
 			zap.Float64("max_bet", game.MaxBet),
@@ -70,75 +94,89 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 
 		// Валидация основных полей
 		if game.CreatorID == 0 {
-			log.Error("Invalid creator ID")
 			return errors.New("invalid creator ID")
 		}
 		if game.Word == "" {
-			log.Error("Word cannot be empty")
 			return errors.New("word cannot be empty")
 		}
-		if game.Length != len([]rune(game.Word)) { // Проверяем длину слова по рунам
-			log.Error("Word length mismatch",
-				zap.Int("specified_length", game.Length),
-				zap.Int("actual_length", len([]rune(game.Word))))
-			return fmt.Errorf("word length mismatch: specified length %d, actual length %d", game.Length, len([]rune(game.Word)))
-		}
-		if game.Length <= 0 { // Длина тоже должна быть > 0
-			log.Error("Invalid word length", zap.Int("length", game.Length))
-			return errors.New("invalid word length")
+
+		// Нормализуем слово (lowercase)
+		game.Word = strings.ToLower(game.Word)
+		game.Length = len([]rune(game.Word))
+
+		if game.Length <= 0 || game.Length > 15 {
+			return errors.New("invalid word length (must be 1-15)")
 		}
 		if game.Title == "" {
-			log.Error("Title cannot be empty")
 			return errors.New("title cannot be empty")
 		}
+		if game.MaxTries <= 0 || game.MaxTries > 20 {
+			return errors.New("max_tries must be between 1 and 20")
+		}
+		if game.TimeLimit <= 0 {
+			game.TimeLimit = 5 // 5 минут по умолчанию
+		}
+		if game.TimeLimit > 60 {
+			return errors.New("time_limit cannot exceed 60 minutes")
+		}
 
-		// Валидация сложности (пример)
+		// Валидация сложности
 		allowedDifficulties := map[string]bool{"easy": true, "medium": true, "hard": true}
 		if !allowedDifficulties[game.Difficulty] {
-			log.Error("Invalid difficulty", zap.String("difficulty", game.Difficulty))
 			return fmt.Errorf("invalid difficulty: %s", game.Difficulty)
 		}
 
 		// Валидация валюты
 		if game.Currency != models.CurrencyTON && game.Currency != models.CurrencyUSDT {
-			log.Error("Invalid currency", zap.String("currency", game.Currency))
 			return fmt.Errorf("invalid currency: %s", game.Currency)
 		}
 
-		// Валидация параметров игры
+		// Валидация параметров ставок
 		if game.MinBet <= 0 {
-			log.Error("Min bet must be positive", zap.Float64("min_bet", game.MinBet))
 			return errors.New("min bet must be positive")
 		}
 		if game.MaxBet < game.MinBet {
-			log.Error("Max bet cannot be less than min bet",
-				zap.Float64("min_bet", game.MinBet),
-				zap.Float64("max_bet", game.MaxBet))
 			return errors.New("max bet cannot be less than min bet")
 		}
-		if game.RewardMultiplier < 1.0 { // Множитель должен быть хотя бы 1
-			log.Error("Invalid reward multiplier", zap.Float64("reward_multiplier", game.RewardMultiplier))
-			return errors.New("invalid reward multiplier, must be >= 1.0")
+		if game.RewardMultiplier < 1.0 {
+			return errors.New("reward multiplier must be >= 1.0")
 		}
-		if game.MaxTries <= 0 {
-			log.Error("Max tries must be positive", zap.Int("max_tries", game.MaxTries))
-			return errors.New("max tries must be positive")
+
+		// Вычисляем минимальный депозит
+		requiredDeposit := game.MaxBet * game.RewardMultiplier
+		if game.DepositAmount < requiredDeposit {
+			game.DepositAmount = requiredDeposit
+		}
+
+		// Генерируем короткий ID
+		shortID := generateShortID()
+		// Проверяем уникальность (в реальности нужно повторять генерацию при коллизии)
+		for attempts := 0; attempts < 10; attempts++ {
+			existing, err := s.gameRepo.GetByShortID(ctx, shortID)
+			if err != nil || existing == nil {
+				break
+			}
+			shortID = generateShortID()
 		}
 
 		// Установка начальных значений
 		game.ID = uuid.New()
-		game.Status = models.GameStatusInactive // Используем константу
-		game.RewardPoolTon = 0.0              // Явно инициализируем пулы
+		game.ShortID = shortID
+		game.Status = models.GameStatusPending // Ожидает депозита
+		game.RewardPoolTon = 0.0
 		game.RewardPoolUsdt = 0.0
+		game.ReservedAmount = 0.0
 		now := time.Now()
 		game.CreatedAt = now
 		game.UpdatedAt = now
 
-		// Добавляем ID в span после его генерации
-		otel.AddAttributesToSpan(span, attribute.String("game_id", game.ID.String()))
+		otel.AddAttributesToSpan(span,
+			attribute.String("game_id", game.ID.String()),
+			attribute.String("short_id", game.ShortID))
 
 		log.Debug("Game parameters validated, creating game",
 			zap.String("game_id", game.ID.String()),
+			zap.String("short_id", game.ShortID),
 			zap.String("status", game.Status))
 
 		err := s.gameRepo.Create(ctx, game)
@@ -147,8 +185,10 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 			return err
 		}
 
-		log.Info("Game created successfully", zap.String("game_id", game.ID.String()))
-		metrics.IncrementGameStart()
+		log.Info("Game created successfully",
+			zap.String("game_id", game.ID.String()),
+			zap.String("short_id", game.ShortID))
+
 		return nil
 	})
 }
@@ -158,13 +198,9 @@ func (s *GameServiceImpl) GetGame(ctx context.Context, id uuid.UUID) (*models.Ga
 	log := s.logger.With(zap.String("method", "GetGame"), zap.String("game_id", id.String()))
 	log.Info("Getting game by ID")
 
-	// Оборачиваем вызов репозитория в трейсинг
-	result, err := WithTracing(ctx, "GameService", "GetGame", func(ctx context.Context) (interface{}, error) {
-		// Добавляем атрибуты к span
+	result, err := WithTracing(ctx, "GameService", "GetGame", func(ctx context.Context) (any, error) {
 		span := otel.SpanFromContext(ctx)
 		otel.AddAttributesToSpan(span, attribute.String("game_id", id.String()))
-
-		// Выполняем оригинальный вызов
 		return s.gameRepo.GetByID(ctx, id)
 	})
 
@@ -180,6 +216,20 @@ func (s *GameServiceImpl) GetGame(ctx context.Context, id uuid.UUID) (*models.Ga
 	return game, nil
 }
 
+// GetGameByShortID получает игру по короткому ID
+func (s *GameServiceImpl) GetGameByShortID(ctx context.Context, shortID string) (*models.Game, error) {
+	log := s.logger.With(zap.String("method", "GetGameByShortID"), zap.String("short_id", shortID))
+	log.Info("Getting game by short ID")
+
+	game, err := s.gameRepo.GetByShortID(ctx, shortID)
+	if err != nil {
+		log.Error("Failed to get game by short ID", zap.Error(err))
+		return nil, err
+	}
+
+	return game, nil
+}
+
 // GetUserGames получает список игр пользователя
 func (s *GameServiceImpl) GetUserGames(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
 	log := s.logger.With(zap.String("method", "GetUserGames"),
@@ -188,16 +238,12 @@ func (s *GameServiceImpl) GetUserGames(ctx context.Context, userID uint64, limit
 		zap.Int("offset", offset))
 	log.Info("Getting user games")
 
-	// Оборачиваем вызов репозитория в трейсинг
-	result, err := WithTracing(ctx, "GameService", "GetUserGames", func(ctx context.Context) (interface{}, error) {
-		// Добавляем атрибуты к span
+	result, err := WithTracing(ctx, "GameService", "GetUserGames", func(ctx context.Context) (any, error) {
 		span := otel.SpanFromContext(ctx)
 		otel.AddAttributesToSpan(span,
 			attribute.Int64("user_id", int64(userID)),
 			attribute.Int("limit", limit),
 			attribute.Int("offset", offset))
-
-		// Выполняем оригинальный вызов
 		return s.gameRepo.GetByUserID(ctx, userID, limit, offset)
 	})
 
@@ -211,40 +257,54 @@ func (s *GameServiceImpl) GetUserGames(ctx context.Context, userID uint64, limit
 	return games, nil
 }
 
+// GetCreatedGames получает список игр, созданных пользователем
+func (s *GameServiceImpl) GetCreatedGames(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	log := s.logger.With(zap.String("method", "GetCreatedGames"),
+		zap.Uint64("user_id", userID),
+		zap.Int("limit", limit),
+		zap.Int("offset", offset))
+	log.Info("Getting games created by user")
+
+	result, err := WithTracing(ctx, "GameService", "GetCreatedGames", func(ctx context.Context) (any, error) {
+		span := otel.SpanFromContext(ctx)
+		otel.AddAttributesToSpan(span,
+			attribute.Int64("user_id", int64(userID)),
+			attribute.Int("limit", limit),
+			attribute.Int("offset", offset))
+		return s.gameRepo.GetByCreator(ctx, userID, limit, offset)
+	})
+
+	if err != nil {
+		log.Error("Failed to get created games", zap.Error(err))
+		return nil, err
+	}
+
+	games := result.([]*models.Game)
+	log.Info("Created games retrieved successfully", zap.Int("count", len(games)))
+	return games, nil
+}
+
 // UpdateGame обновляет игру
 func (s *GameServiceImpl) UpdateGame(ctx context.Context, game *models.Game) error {
 	log := s.logger.With(zap.String("method", "UpdateGame"))
 
 	if game == nil {
-		log.Error("Game is nil")
 		return errors.New("game is nil")
 	}
 
-	log.Info("Updating game",
-		zap.String("game_id", game.ID.String()),
-		zap.String("title", game.Title))
+	log.Info("Updating game", zap.String("game_id", game.ID.String()))
 
-	// Получаем существующую игру, чтобы обновить только разрешенные поля
 	existingGame, err := s.gameRepo.GetByID(ctx, game.ID)
 	if err != nil {
-		log.Error("Game not found for update", zap.Error(err), zap.String("game_id", game.ID.String()))
-		return fmt.Errorf("game not found for update: %w", err)
+		return fmt.Errorf("game not found: %w", err)
 	}
 
-	log.Debug("Game found, updating fields",
-		zap.String("game_id", existingGame.ID.String()),
-		zap.String("old_title", existingGame.Title),
-		zap.String("new_title", game.Title))
-
-	// Обновляем только изменяемые поля (например, Title, Description)
+	// Обновляем только разрешённые поля
 	existingGame.Title = game.Title
 	existingGame.Description = game.Description
-	// Другие поля, такие как ставки, слово, множитель, обычно не должны меняться после создания
 	existingGame.UpdatedAt = time.Now()
 
-	err = s.gameRepo.Update(ctx, existingGame)
-	if err != nil {
-		log.Error("Failed to update game", zap.Error(err), zap.String("game_id", game.ID.String()))
+	if err := s.gameRepo.Update(ctx, existingGame); err != nil {
 		return err
 	}
 
@@ -252,162 +312,84 @@ func (s *GameServiceImpl) UpdateGame(ctx context.Context, game *models.Game) err
 	return nil
 }
 
-// DeleteGame удаляет игру и возвращает средства из reward pool создателю.
-// Важно: Проверка, что вызывающий пользователь является создателем игры, должна быть на уровне handler.
+// DeleteGame удаляет игру
 func (s *GameServiceImpl) DeleteGame(ctx context.Context, id uuid.UUID) error {
 	log := s.logger.With(zap.String("method", "DeleteGame"), zap.String("game_id", id.String()))
 	log.Info("Deleting game")
 
-	if id == uuid.Nil {
-		log.Error("Game ID cannot be nil for delete")
-		return errors.New("game ID cannot be nil for delete")
-	}
-
 	game, err := s.gameRepo.GetByID(ctx, id)
 	if err != nil {
-		// Обрабатываем случай, когда игра не найдена
-		if errors.Is(err, models.ErrGameNotFound) { // Предполагаем наличие ErrGameNotFound
-			log.Error("Game not found", zap.String("game_id", id.String()))
-			return errors.New("game not found")
-		}
-		log.Error("Failed to get game for deletion", zap.Error(err))
-		return fmt.Errorf("failed to get game for deletion: %w", err)
+		return fmt.Errorf("game not found: %w", err)
 	}
 
-	log.Debug("Game found",
-		zap.String("game_id", game.ID.String()),
-		zap.String("status", game.Status),
-		zap.Float64("reward_pool_ton", game.RewardPoolTon),
-		zap.Float64("reward_pool_usdt", game.RewardPoolUsdt))
-
-	// Проверяем, что игра не активна
+	// Нельзя удалить активную игру
 	if game.Status == models.GameStatusActive {
-		log.Error("Cannot delete an active game", zap.String("game_id", id.String()))
-		return errors.New("cannot delete an active game (consider deactivating first or checking for active lobbies)")
+		return errors.New("cannot delete an active game")
 	}
 
-	// Определяем сумму и валюту возврата
+	// Возвращаем средства создателю
 	var returnAmount float64
-	var returnCurrency string
-	if game.Currency == models.CurrencyTON && game.RewardPoolTon > 0 {
+	if game.Currency == models.CurrencyTON {
 		returnAmount = game.RewardPoolTon
-		returnCurrency = models.CurrencyTON
-	} else if game.Currency == models.CurrencyUSDT && game.RewardPoolUsdt > 0 {
+	} else {
 		returnAmount = game.RewardPoolUsdt
-		returnCurrency = models.CurrencyUSDT
 	}
 
-	// Если есть что возвращать, обновляем баланс создателя
 	if returnAmount > 0 {
 		log.Info("Returning reward pool to creator",
 			zap.Float64("amount", returnAmount),
-			zap.String("currency", returnCurrency),
-			zap.Uint64("creator_id", game.CreatorID))
+			zap.String("currency", game.Currency))
 
-		var errUpdateBalance error
-		if returnCurrency == models.CurrencyTON {
-			errUpdateBalance = s.userService.UpdateTonBalance(ctx, game.CreatorID, returnAmount)
+		if game.Currency == models.CurrencyTON {
+			err = s.userService.UpdateTonBalance(ctx, game.CreatorID, returnAmount)
 		} else {
-			errUpdateBalance = s.userService.UpdateUsdtBalance(ctx, game.CreatorID, returnAmount)
+			err = s.userService.UpdateUsdtBalance(ctx, game.CreatorID, returnAmount)
 		}
 
-		if errUpdateBalance != nil {
-			log.Error("Failed to return reward pool to creator",
-				zap.Error(errUpdateBalance),
-				zap.Uint64("creator_id", game.CreatorID),
-				zap.Float64("amount", returnAmount),
-				zap.String("currency", returnCurrency))
-			return fmt.Errorf("failed to return reward pool to creator %d (%s): %w", game.CreatorID, returnCurrency, errUpdateBalance)
+		if err != nil {
+			return fmt.Errorf("failed to return funds to creator: %w", err)
 		}
-
-		log.Info("Reward pool returned successfully to creator",
-			zap.Uint64("creator_id", game.CreatorID),
-			zap.Float64("amount", returnAmount),
-			zap.String("currency", returnCurrency))
-	} else {
-		log.Info("No reward pool to return")
 	}
 
-	// Удаляем игру
-	log.Debug("Deleting game from repository", zap.String("game_id", id.String()))
 	if err := s.gameRepo.Delete(ctx, id); err != nil {
-		log.Error("Failed to delete game after returning reward pool",
-			zap.Error(err),
-			zap.String("game_id", id.String()))
-		return fmt.Errorf("reward pool returned, but failed to delete game %s: %w", id.String(), err)
+		return err
 	}
 
-	log.Info("Game deleted successfully", zap.String("game_id", id.String()))
+	log.Info("Game deleted successfully")
 	return nil
 }
 
 // GetActiveGames получает список активных игр
 func (s *GameServiceImpl) GetActiveGames(ctx context.Context, limit, offset int) ([]*models.Game, error) {
-	log := s.logger.With(zap.String("method", "GetActiveGames"),
-		zap.Int("limit", limit),
-		zap.Int("offset", offset))
+	log := s.logger.With(zap.String("method", "GetActiveGames"))
 	log.Info("Getting active games")
 
-	// Оборачиваем вызов репозитория в трейсинг
-	result, err := WithTracing(ctx, "GameService", "GetActiveGames", func(ctx context.Context) (interface{}, error) {
-		// Добавляем атрибуты к span
-		span := otel.SpanFromContext(ctx)
-		otel.AddAttributesToSpan(span,
-			attribute.Int("limit", limit),
-			attribute.Int("offset", offset))
-
-		// Выполняем оригинальный вызов
+	result, err := WithTracing(ctx, "GameService", "GetActiveGames", func(ctx context.Context) (any, error) {
 		return s.gameRepo.GetActive(ctx, limit, offset)
 	})
 
 	if err != nil {
-		log.Error("Failed to get active games", zap.Error(err))
 		return nil, err
 	}
 
 	games := result.([]*models.Game)
-	log.Info("Active games retrieved successfully", zap.Int("count", len(games)))
-
-	// Добавляем количество найденных игр в span
-	span := otel.SpanFromContext(ctx)
-	otel.AddAttributesToSpan(span, attribute.Int("games_count", len(games)))
-
+	log.Info("Active games retrieved", zap.Int("count", len(games)))
 	return games, nil
+}
+
+// GetPendingGames получает список игр, ожидающих депозита
+func (s *GameServiceImpl) GetPendingGames(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+	return s.gameRepo.GetPending(ctx, limit, offset)
 }
 
 // SearchGames ищет игры по параметрам
 func (s *GameServiceImpl) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*models.Game, error) {
-	log := s.logger.With(zap.String("method", "SearchGames"),
-		zap.Float64("min_bet", minBet),
-		zap.Float64("max_bet", maxBet),
-		zap.String("difficulty", difficulty),
-		zap.Int("limit", limit),
-		zap.Int("offset", offset))
-	log.Info("Searching games")
-
-	games, err := s.gameRepo.SearchGames(ctx, minBet, maxBet, difficulty, limit, offset)
-	if err != nil {
-		log.Error("Failed to search games", zap.Error(err))
-		return nil, err
-	}
-
-	log.Info("Games search completed successfully", zap.Int("count", len(games)))
-	return games, nil
+	return s.gameRepo.SearchGames(ctx, minBet, maxBet, difficulty, limit, offset)
 }
 
 // GetGameStats получает статистику игры
-func (s *GameServiceImpl) GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error) {
-	log := s.logger.With(zap.String("method", "GetGameStats"), zap.String("game_id", gameID.String()))
-	log.Info("Getting game statistics")
-
-	stats, err := s.gameRepo.GetGameStats(ctx, gameID)
-	if err != nil {
-		log.Error("Failed to get game statistics", zap.Error(err))
-		return nil, err
-	}
-
-	log.Info("Game statistics retrieved successfully")
-	return stats, nil
+func (s *GameServiceImpl) GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error) {
+	return s.gameRepo.GetGameStats(ctx, gameID)
 }
 
 // AddToRewardPool добавляет средства в reward pool игры
@@ -415,121 +397,64 @@ func (s *GameServiceImpl) AddToRewardPool(ctx context.Context, gameID uuid.UUID,
 	log := s.logger.With(zap.String("method", "AddToRewardPool"),
 		zap.String("game_id", gameID.String()),
 		zap.Float64("amount", amount))
-	log.Info("Adding to game reward pool")
+	log.Info("Adding to reward pool")
 
 	game, err := s.gameRepo.GetByID(ctx, gameID)
 	if err != nil {
-		log.Error("Failed to get game", zap.Error(err))
 		return err
 	}
 
-	log.Debug("Game found",
-		zap.String("game_id", game.ID.String()),
-		zap.String("currency", game.Currency),
-		zap.String("status", game.Status),
-		zap.Float64("reward_pool_ton", game.RewardPoolTon),
-		zap.Float64("reward_pool_usdt", game.RewardPoolUsdt))
-
 	if amount <= 0 {
-		log.Error("Deposit amount must be positive", zap.Float64("amount", amount))
-		return errors.New("deposit amount must be positive")
+		return errors.New("amount must be positive")
 	}
 
-	// Проверяем, что игра активна для депозита
-	if game.Status != models.GameStatusActive {
-		log.Error("Cannot add to reward pool of inactive game",
-			zap.String("status", game.Status))
-		return errors.New("cannot add to reward pool of inactive game")
-	}
-
-	// В зависимости от валюты игры добавляем средства в соответствующий пул
+	// Добавляем в пул
 	if game.Currency == models.CurrencyTON {
-		log.Info("Adding to TON reward pool",
-			zap.Float64("current_pool", game.RewardPoolTon),
-			zap.Float64("amount_to_add", amount))
 		game.RewardPoolTon += amount
-	} else if game.Currency == models.CurrencyUSDT {
-		log.Info("Adding to USDT reward pool",
-			zap.Float64("current_pool", game.RewardPoolUsdt),
-			zap.Float64("amount_to_add", amount))
-		game.RewardPoolUsdt += amount
 	} else {
-		log.Error("Unknown currency", zap.String("currency", game.Currency))
-		return fmt.Errorf("unknown currency: %s", game.Currency)
+		game.RewardPoolUsdt += amount
 	}
-
 	game.UpdatedAt = time.Now()
 
-	// Обновляем игру в репозитории
-	log.Debug("Updating game with new reward pool",
-		zap.Float64("reward_pool_ton", game.RewardPoolTon),
-		zap.Float64("reward_pool_usdt", game.RewardPoolUsdt))
-
 	if err := s.gameRepo.Update(ctx, game); err != nil {
-		log.Error("Failed to update reward pool", zap.Error(err))
-		return fmt.Errorf("failed to update reward pool: %w", err)
+		return err
 	}
 
 	log.Info("Reward pool updated successfully")
 	return nil
 }
 
-// ActivateGame активирует игру после подтверждения депозита
+// ActivateGame активирует игру
 func (s *GameServiceImpl) ActivateGame(ctx context.Context, gameID uuid.UUID) error {
 	log := s.logger.With(zap.String("method", "ActivateGame"), zap.String("game_id", gameID.String()))
 	log.Info("Activating game")
 
 	game, err := s.gameRepo.GetByID(ctx, gameID)
 	if err != nil {
-		log.Error("Failed to get game", zap.Error(err))
 		return err
 	}
 
-	log.Debug("Game found",
-		zap.String("game_id", game.ID.String()),
-		zap.String("status", game.Status),
-		zap.String("currency", game.Currency),
-		zap.Float64("reward_pool_ton", game.RewardPoolTon),
-		zap.Float64("reward_pool_usdt", game.RewardPoolUsdt))
-
-	// Проверяем, что игра неактивна
-	if game.Status != models.GameStatusInactive {
-		log.Error("Game is already active", zap.String("status", game.Status))
+	if game.Status == models.GameStatusActive {
 		return errors.New("game is already active")
 	}
 
-	// Проверяем, что reward pool содержит необходимую сумму
-	var rewardPoolBalance float64
-	var requiredBalance float64 = game.MaxBet * game.RewardMultiplier
-
+	// Проверяем достаточность средств
+	requiredDeposit := game.GetRequiredDeposit()
+	var currentPool float64
 	if game.Currency == models.CurrencyTON {
-		rewardPoolBalance = game.RewardPoolTon
-	} else if game.Currency == models.CurrencyUSDT {
-		rewardPoolBalance = game.RewardPoolUsdt
+		currentPool = game.RewardPoolTon
 	} else {
-		log.Error("Unknown currency", zap.String("currency", game.Currency))
-		return fmt.Errorf("unknown currency: %s", game.Currency)
+		currentPool = game.RewardPoolUsdt
 	}
 
-	log.Debug("Checking reward pool balance",
-		zap.Float64("reward_pool_balance", rewardPoolBalance),
-		zap.Float64("required_balance", requiredBalance))
-
-	// Проверяем достаточность средств для активации
-	if rewardPoolBalance < requiredBalance {
-		log.Error("Insufficient funds in reward pool",
-			zap.Float64("reward_pool_balance", rewardPoolBalance),
-			zap.Float64("required_balance", requiredBalance))
-		return fmt.Errorf("insufficient funds in reward pool: need %.2f %s, but have %.2f",
-			requiredBalance, game.Currency, rewardPoolBalance)
+	if currentPool < requiredDeposit {
+		return fmt.Errorf("insufficient funds: need %.4f %s, have %.4f",
+			requiredDeposit, game.Currency, currentPool)
 	}
 
-	// Обновляем статус на активный
-	log.Info("Updating game status to active")
 	err = s.gameRepo.UpdateStatus(ctx, gameID, models.GameStatusActive)
 	if err != nil {
-		log.Error("Failed to update game status", zap.Error(err))
-		return fmt.Errorf("failed to activate game: %w", err)
+		return err
 	}
 
 	log.Info("Game activated successfully")
@@ -544,161 +469,129 @@ func (s *GameServiceImpl) DeactivateGame(ctx context.Context, gameID uuid.UUID) 
 
 	game, err := s.gameRepo.GetByID(ctx, gameID)
 	if err != nil {
-		log.Error("Failed to get game", zap.Error(err))
 		return err
 	}
 
-	log.Debug("Game found",
-		zap.String("game_id", game.ID.String()),
-		zap.String("status", game.Status))
-
-	// Проверяем, что игра активна
 	if game.Status != models.GameStatusActive {
-		log.Error("Game is already inactive", zap.String("status", game.Status))
-		return errors.New("game is already inactive")
+		return errors.New("game is not active")
 	}
 
-	// Можно было бы добавить здесь проверку на отсутствие активных лобби
-	// Но это требует дополнительного слоя логики с LobbyService
+	// Проверяем, нет ли зарезервированных средств (активных игроков)
+	if game.ReservedAmount > 0 {
+		return errors.New("cannot deactivate game with active players")
+	}
 
-	// Обновляем статус на неактивный
-	log.Info("Updating game status to inactive")
 	err = s.gameRepo.UpdateStatus(ctx, gameID, models.GameStatusInactive)
 	if err != nil {
-		log.Error("Failed to update game status", zap.Error(err))
-		return fmt.Errorf("failed to deactivate game: %w", err)
+		return err
 	}
 
 	log.Info("Game deactivated successfully")
 	return nil
 }
 
-// CheckWord проверяет слово и возвращает результат
-func (s *GameServiceImpl) CheckWord(word, target string) string {
-	log := s.logger.With(zap.String("method", "CheckWord"))
-	log.Debug("Checking word",
-		zap.String("word", word),
-		zap.String("target", target))
+// ReserveForBet резервирует средства для ставки
+func (s *GameServiceImpl) ReserveForBet(ctx context.Context, gameID uuid.UUID, betAmount float64, multiplier float64) error {
+	potentialReward := betAmount * multiplier
+	return s.gameRepo.IncrementReservedAmount(ctx, gameID, potentialReward)
+}
 
-	// Проверяем длину слов
-	wordRunes := []rune(word)
-	targetRunes := []rune(target)
+// ReleaseReservation освобождает зарезервированные средства
+func (s *GameServiceImpl) ReleaseReservation(ctx context.Context, gameID uuid.UUID, amount float64) error {
+	return s.gameRepo.DecrementReservedAmount(ctx, gameID, amount)
+}
+
+// GetPaymentInfo генерирует информацию для оплаты депозита игры
+func (s *GameServiceImpl) GetPaymentInfo(ctx context.Context, gameID uuid.UUID) (*models.PaymentInfo, error) {
+	game, err := s.gameRepo.GetByID(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	if game.Status != models.GameStatusPending {
+		return nil, errors.New("game is not pending payment")
+	}
+
+	// Генерируем комментарий для идентификации платежа
+	comment := fmt.Sprintf("GD_%s_%d", game.ShortID, time.Now().Unix())
+
+	masterWallet := s.tonService.GetMasterWalletAddress()
+	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, game.DepositAmount, comment)
+
+	return &models.PaymentInfo{
+		Address:  masterWallet,
+		Amount:   game.DepositAmount,
+		Currency: game.Currency,
+		Comment:  comment,
+		GameID:   game.ShortID,
+		ExpireAt: time.Now().Add(30 * time.Minute).Unix(),
+		DeepLink: deepLink,
+	}, nil
+}
+
+// CheckWord проверяет слово и возвращает результат в виде строки
+func (s *GameServiceImpl) CheckWord(word, target string) string {
+	wordRunes := []rune(strings.ToLower(word))
+	targetRunes := []rune(strings.ToLower(target))
 
 	if len(wordRunes) != len(targetRunes) {
-		log.Error("Words have different lengths",
-			zap.Int("word_length", len(wordRunes)),
-			zap.Int("target_length", len(targetRunes)))
 		return ""
 	}
 
-	// Массив для результатов проверки
 	result := make([]int, len(wordRunes))
 	targetUsed := make([]bool, len(targetRunes))
 
-	// Сначала проверяем точные совпадения (буква на своем месте)
+	// Сначала точные совпадения
 	for i := 0; i < len(wordRunes); i++ {
 		if wordRunes[i] == targetRunes[i] {
-			result[i] = 2 // 2 означает точное совпадение
+			result[i] = 2
 			targetUsed[i] = true
 		}
 	}
 
-	// Затем проверяем наличие буквы в слове, но не на своем месте
+	// Затем буквы на неправильных позициях
 	for i := 0; i < len(wordRunes); i++ {
 		if result[i] == 2 {
-			continue // Уже нашли точное совпадение
+			continue
 		}
-
 		for j := 0; j < len(targetRunes); j++ {
-			if targetUsed[j] {
-				continue // Эта буква цели уже использована
-			}
-
-			if wordRunes[i] == targetRunes[j] {
-				result[i] = 1 // 1 означает, что буква есть в слове, но не на своем месте
+			if !targetUsed[j] && wordRunes[i] == targetRunes[j] {
+				result[i] = 1
 				targetUsed[j] = true
 				break
 			}
 		}
 	}
 
-	// Преобразуем массив в строку
-	resultStr := ""
+	// Преобразуем в строку
+	var sb strings.Builder
 	for _, r := range result {
-		resultStr += fmt.Sprintf("%d", r)
+		sb.WriteString(fmt.Sprintf("%d", r))
 	}
-
-	log.Debug("Word check result", zap.String("result", resultStr))
-	return resultStr
+	return sb.String()
 }
 
-// IsWordCorrect проверяет, совпадает ли слово с целевым
+// IsWordCorrect проверяет, угадано ли слово
 func (s *GameServiceImpl) IsWordCorrect(word, target string) bool {
-	return word == target
+	return strings.ToLower(word) == strings.ToLower(target)
 }
 
-// CalculateReward вычисляет награду на основе ставки, множителя и числа использованных попыток
+// CalculateReward вычисляет награду с учётом комиссии
 func (s *GameServiceImpl) CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int) float64 {
-	log := s.logger.With(zap.String("method", "CalculateReward"),
-		zap.Float64("bet", bet),
-		zap.Float64("multiplier", multiplier),
-		zap.Int("tries_used", triesUsed),
-		zap.Int("max_tries", maxTries))
-	log.Debug("Calculating reward")
-
 	if triesUsed <= 0 || maxTries <= 0 || triesUsed > maxTries {
-		log.Error("Invalid tries parameters",
-			zap.Int("tries_used", triesUsed),
-			zap.Int("max_tries", maxTries))
 		return 0
 	}
 
 	// Базовая награда
 	baseReward := bet * multiplier
 
-	// Чем меньше попыток использовано, тем выше награда
-	triesMultiplier := 1.0 - (float64(triesUsed-1) * 0.1) // -10% за каждую дополнительную попытку
-	if triesMultiplier < 0.5 {
-		triesMultiplier = 0.5 // Минимальный множитель - 50% от базовой награды
-	}
+	// Бонус за быстрое угадывание (чем меньше попыток - тем больше бонус)
+	triesBonus := 1.0 + (float64(maxTries-triesUsed)/float64(maxTries))*0.5
 
-	reward := baseReward * triesMultiplier
+	grossReward := baseReward * triesBonus
 
-	log.Debug("Reward calculated",
-		zap.Float64("base_reward", baseReward),
-		zap.Float64("tries_multiplier", triesMultiplier),
-		zap.Float64("final_reward", reward))
+	// Вычитаем комиссию 5%
+	netReward := grossReward * (1 - s.commissionRate)
 
-	return reward
-}
-
-// GetCreatedGames получает список игр, созданных пользователем
-func (s *GameServiceImpl) GetCreatedGames(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
-	log := s.logger.With(zap.String("method", "GetCreatedGames"),
-		zap.Uint64("user_id", userID),
-		zap.Int("limit", limit),
-		zap.Int("offset", offset))
-	log.Info("Getting games created by user")
-
-	// Оборачиваем вызов репозитория в трейсинг
-	result, err := WithTracing(ctx, "GameService", "GetCreatedGames", func(ctx context.Context) (interface{}, error) {
-		// Добавляем атрибуты к span
-		span := otel.SpanFromContext(ctx)
-		otel.AddAttributesToSpan(span,
-			attribute.Int64("user_id", int64(userID)),
-			attribute.Int("limit", limit),
-			attribute.Int("offset", offset))
-
-		// Выполняем вызов метода GetByCreator
-		return s.gameRepo.GetByCreator(ctx, userID, limit, offset)
-	})
-
-	if err != nil {
-		log.Error("Failed to get created games", zap.Error(err))
-		return nil, err
-	}
-
-	games := result.([]*models.Game)
-	log.Info("Created games retrieved successfully", zap.Int("count", len(games)))
-	return games, nil
+	return netReward
 }

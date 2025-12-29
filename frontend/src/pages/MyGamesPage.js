@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
-import { useAuth } from '../context/AuthContext';
 import { gameAPI } from '../api';
 
 const Container = styled.div`
@@ -45,7 +44,6 @@ const GameCard = styled.div`
 
 const MyGamesPage = () => {
     const [games, setGames] = useState([]);
-    const { user } = useAuth();
 
     useEffect(() => {
         const fetchGames = async () => {

@@ -94,11 +94,17 @@ type TONConfig struct {
 	APIEndpoint           string  `yaml:"api_endpoint"`
 	APIKey                string  `yaml:"api_key"`
 	MasterWallet          string  `yaml:"master_wallet"`
-	MasterWalletSecret    string  `yaml:"master_wallet_secret"`
-	MinWithdrawTON        float64 `yaml:"min_withdraw"`
-	WithdrawFeeTON        float64 `yaml:"withdraw_fee"`
+	MasterWalletSeed      string  `yaml:"master_wallet_seed"`      // 24 слова seed фразы
+	MasterWalletSecret    string  `yaml:"master_wallet_secret"`    // Deprecated: используй master_wallet_seed
+	MinWithdrawTON        float64 `yaml:"min_withdraw_ton"`
+	MinWithdrawUSDT       float64 `yaml:"min_withdraw_usdt"`
+	WithdrawFeeTON        float64 `yaml:"withdraw_fee_ton"`
+	WithdrawFeeUSDT       float64 `yaml:"withdraw_fee_usdt"`
 	RequiredConfirmations int     `yaml:"required_confirmations"`
 	Testnet               bool    `yaml:"testnet"`
+	USDTMasterAddress     string  `yaml:"usdt_master_address"`     // Адрес USDT Jetton контракта
+	WorkerPollInterval    int     `yaml:"worker_poll_interval"`    // Интервал опроса воркера в секундах
+	CommissionRate        float64 `yaml:"commission_rate"`         // Комиссия сервиса (0.05 = 5%)
 }
 
 // EthereumConfig конфигурация для Ethereum блокчейна
@@ -121,12 +127,9 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Подставляем переменные окружения
-	configStr := expandEnvVariables(string(data))
-
-	// Парсим YAML
+	// Парсим YAML напрямую (секреты должны быть в файле)
 	var config Config
-	if err := yaml.Unmarshal([]byte(configStr), &config); err != nil {
+	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
@@ -175,54 +178,56 @@ func New() (*Config, error) {
 }
 
 // defaultConfig возвращает конфигурацию по умолчанию (dev режим)
+// Используется только когда конфиг файл не найден
 func defaultConfig() *Config {
 	return &Config{
 		Environment:     EnvDev,
 		Network:         NetworkTON,
 		UseMockProvider: true,
 		HTTP: HTTPConfig{
-			Port:         getEnvOrDefault("HTTP_PORT", "8080"),
+			Port:         "8080",
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 			IdleTimeout:  60 * time.Second,
 		},
 		Postgres: PostgresConfig{
-			Host:     getEnvOrDefault("POSTGRES_HOST", "localhost"),
-			Port:     getEnvOrDefault("POSTGRES_PORT", "5432"),
-			User:     getEnvOrDefault("POSTGRES_USER", "postgres"),
-			Password: getEnvOrDefault("POSTGRES_PASSWORD", "postgres"),
-			DBName:   getEnvOrDefault("POSTGRES_DB", "wordle"),
-			SSLMode:  getEnvOrDefault("POSTGRES_SSLMODE", "disable"),
+			Host:     "localhost",
+			Port:     "5432",
+			User:     "postgres",
+			Password: "postgres",
+			DBName:   "wordle",
+			SSLMode:  "disable",
 		},
 		Redis: RedisConfig{
-			Host:     getEnvOrDefault("REDIS_HOST", "localhost"),
-			Port:     getEnvOrDefault("REDIS_PORT", "6379"),
-			Password: getEnvOrDefault("REDIS_PASSWORD", ""),
+			Host:     "localhost",
+			Port:     "6379",
+			Password: "",
 			DB:       0,
 		},
 		Auth: AuthConfig{
 			Enabled:   false,
-			JWTSecret: getEnvOrDefault("JWT_SECRET", "dev_secret_key"),
-			BotToken:  getEnvOrDefault("BOT_TOKEN", ""),
+			JWTSecret: "dev_secret_key_not_for_production",
+			BotToken:  "",
 			TokenTTL:  24 * time.Hour,
 		},
 		Metrics: MetricsConfig{
-			Enabled: true,
-			Port:    getEnvOrDefault("METRICS_PORT", "9090"),
+			Enabled: false,
+			Port:    "9090",
 		},
 		Logging: logger.Config{
 			Level: "debug",
 		},
 		Blockchain: BlockchainConfig{
 			TON: TONConfig{
-				APIEndpoint:           "https://testnet.toncenter.com/api/v2",
+				APIEndpoint:           "https://testnet.toncenter.com/api/v3",
 				Testnet:               true,
 				MinWithdrawTON:        0.1,
-				WithdrawFeeTON:        0.01,
+				WithdrawFeeTON:        0.05,
 				RequiredConfirmations: 1,
+				CommissionRate:        0.05,
 			},
 			Ethereum: EthereumConfig{
-				ChainID:               11155111, // Sepolia
+				ChainID:               11155111, // Sepolia testnet
 				MinWithdrawETH:        0.01,
 				WithdrawFeeETH:        0.001,
 				RequiredConfirmations: 3,
@@ -314,23 +319,6 @@ func (r RedisConfig) Addr() string {
 	return r.Host + ":" + r.Port
 }
 
-// expandEnvVariables заменяет ${VAR} на значения переменных окружения
-func expandEnvVariables(content string) string {
-	return os.Expand(content, func(key string) string {
-		if value, exists := os.LookupEnv(key); exists {
-			return value
-		}
-		return "${" + key + "}"
-	})
-}
-
-// getEnvOrDefault возвращает значение переменной окружения или дефолтное значение
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 // String возвращает строковое представление конфигурации (для логов)
 func (c *Config) String() string {

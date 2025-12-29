@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { lobbyAPI } from '../api';
-import { useAuth } from '../context/AuthContext';
 import WordleGrid from '../components/WordleGrid';
 import Keyboard from '../components/Keyboard';
 
@@ -188,7 +187,6 @@ const ErrorMessage = styled.div`
 
 const LobbyPage = () => {
     const { id } = useParams();
-    const { user } = useAuth();
     const navigate = useNavigate();
 
     const [lobby, setLobby] = useState(null);

@@ -1,0 +1,68 @@
+# Docker конфигурация Wordle Betting
+# Используется в docker-compose
+
+environment: dev
+network: ton
+use_mock_provider: true
+
+http:
+  port: "8080"
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+# Хосты указывают на имена сервисов в docker-compose
+postgres:
+  host: postgres
+  port: "5432"
+  user: postgres
+  password: postgres
+  db_name: wordle
+  ssl_mode: disable
+
+redis:
+  host: redis
+  port: "6379"
+  password: ""
+  db: 0
+
+auth:
+  enabled: false
+  jwt_secret: docker_dev_secret_key_not_for_production
+  bot_token: ""
+  token_ttl: 24h
+
+metrics:
+  enabled: true
+  port: "9090"
+
+logging:
+  level: debug
+  format: json
+  output: stdout
+
+blockchain:
+  ton:
+    api_endpoint: https://testnet.toncenter.com/api/v3
+    api_key: ""
+    master_wallet: ""
+    master_wallet_seed: ""
+    min_withdraw_ton: 0.1
+    min_withdraw_usdt: 1.0
+    withdraw_fee_ton: 0.05
+    withdraw_fee_usdt: 0.5
+    required_confirmations: 1
+    testnet: true
+    usdt_master_address: ""
+    worker_poll_interval: 10
+    commission_rate: 0.05
+
+  ethereum:
+    rpc_url: ""
+    chain_id: 11155111
+    master_wallet: ""
+    private_key: ""
+    min_withdraw: 0.01
+    withdraw_fee: 0.001
+    required_confirmations: 3
+    usdt_contract: ""

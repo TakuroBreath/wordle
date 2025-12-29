@@ -1,5 +1,6 @@
 # Production конфигурация Wordle Betting
-# Заполните свои данные и запустите
+# ⚠️ ВАЖНО: Не коммитьте этот файл с реальными секретами!
+# Скопируйте в config.local.yaml и заполните свои данные
 
 environment: prod
 network: ton
@@ -14,20 +15,20 @@ http:
 postgres:
   host: localhost
   port: "5432"
-  user: postgres
-  password: postgres
-  db_name: wordle
-  ssl_mode: disable
+  user: wordle_user
+  password: CHANGE_ME_STRONG_PASSWORD
+  db_name: wordle_prod
+  ssl_mode: require
 
 redis:
   host: localhost
   port: "6379"
-  password: ""
+  password: CHANGE_ME_REDIS_PASSWORD
   db: 0
 
 auth:
   enabled: true
-  jwt_secret: your_super_secret_jwt_key_here_change_me
+  jwt_secret: CHANGE_ME_SUPER_SECRET_JWT_KEY_MIN_32_CHARS
   bot_token: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"  # Ваш Telegram Bot Token
   token_ttl: 24h
 
@@ -42,20 +43,41 @@ logging:
 
 blockchain:
   ton:
-    api_endpoint: https://toncenter.com/api/v2
-    api_key: "your_tonapi_key_here"
-    master_wallet: "EQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    master_wallet_secret: "your_wallet_secret"
-    min_withdraw: 0.5
-    withdraw_fee: 0.05
+    # TON Center API (mainnet)
+    api_endpoint: https://toncenter.com/api/v3
+    api_key: YOUR_TONCENTER_API_KEY
+    
+    # Кастодиальный кошелёк платформы
+    master_wallet: EQDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    
+    # Seed фраза кошелька (24 слова через пробел)
+    # ⚠️ КРИТИЧНО: Храните в безопасности!
+    master_wallet_seed: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24"
+    
+    # Лимиты вывода
+    min_withdraw_ton: 0.5
+    min_withdraw_usdt: 5.0
+    withdraw_fee_ton: 0.05
+    withdraw_fee_usdt: 0.5
+    
+    # Подтверждения
     required_confirmations: 1
     testnet: false
+    
+    # USDT Jetton Master Address (mainnet)
+    usdt_master_address: EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
+    
+    # Интервал опроса блокчейна (секунды)
+    worker_poll_interval: 5
+    
+    # Комиссия платформы (0.05 = 5%)
+    commission_rate: 0.05
 
   ethereum:
-    rpc_url: "https://mainnet.infura.io/v3/your_key"
+    rpc_url: ""
     chain_id: 1
-    master_wallet: "0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    private_key: "your_private_key"
+    master_wallet: ""
+    private_key: ""
     min_withdraw: 0.01
     withdraw_fee: 0.005
     required_confirmations: 12

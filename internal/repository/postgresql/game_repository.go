@@ -953,3 +953,86 @@ func (r *GameRepository) SearchGames(ctx context.Context, minBet, maxBet float64
 
 	return games, nil
 }
+
+// GetByShortID получает игру по короткому ID
+func (r *GameRepository) GetByShortID(ctx context.Context, shortID string) (*models.Game, error) {
+	query := `
+		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
+			min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
+			status, created_at, updated_at,
+			COALESCE(short_id, ''), COALESCE(time_limit, 5), COALESCE(deposit_amount, 0), 
+			COALESCE(reserved_amount, 0), COALESCE(deposit_tx_hash, '')
+		FROM games
+		WHERE short_id = $1
+	`
+
+	var game models.Game
+	err := r.db.QueryRowContext(ctx, query, shortID).Scan(
+		&game.ID,
+		&game.CreatorID,
+		&game.Word,
+		&game.Length,
+		&game.Difficulty,
+		&game.MaxTries,
+		&game.Title,
+		&game.Description,
+		&game.MinBet,
+		&game.MaxBet,
+		&game.RewardMultiplier,
+		&game.Currency,
+		&game.RewardPoolTon,
+		&game.RewardPoolUsdt,
+		&game.Status,
+		&game.CreatedAt,
+		&game.UpdatedAt,
+		&game.ShortID,
+		&game.TimeLimit,
+		&game.DepositAmount,
+		&game.ReservedAmount,
+		&game.DepositTxHash,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, models.ErrGameNotFound
+		}
+		return nil, fmt.Errorf("failed to get game by short_id: %w", err)
+	}
+
+	return &game, nil
+}
+
+// GetPending получает игры со статусом pending
+func (r *GameRepository) GetPending(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+	return r.GetByStatus(ctx, models.GameStatusPending, limit, offset)
+}
+
+// UpdateReservedAmount обновляет зарезервированную сумму
+func (r *GameRepository) UpdateReservedAmount(ctx context.Context, id uuid.UUID, reservedAmount float64) error {
+	query := `UPDATE games SET reserved_amount = $1, updated_at = $2 WHERE id = $3`
+	_, err := r.db.ExecContext(ctx, query, reservedAmount, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update reserved amount: %w", err)
+	}
+	return nil
+}
+
+// IncrementReservedAmount увеличивает зарезервированную сумму
+func (r *GameRepository) IncrementReservedAmount(ctx context.Context, id uuid.UUID, amount float64) error {
+	query := `UPDATE games SET reserved_amount = reserved_amount + $1, updated_at = $2 WHERE id = $3`
+	_, err := r.db.ExecContext(ctx, query, amount, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to increment reserved amount: %w", err)
+	}
+	return nil
+}
+
+// DecrementReservedAmount уменьшает зарезервированную сумму
+func (r *GameRepository) DecrementReservedAmount(ctx context.Context, id uuid.UUID, amount float64) error {
+	query := `UPDATE games SET reserved_amount = GREATEST(0, reserved_amount - $1), updated_at = $2 WHERE id = $3`
+	_, err := r.db.ExecContext(ctx, query, amount, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to decrement reserved amount: %w", err)
+	}
+	return nil
+}

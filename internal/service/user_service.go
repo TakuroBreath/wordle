@@ -6,21 +6,51 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
-	// "github.com/google/uuid" // uuid не используется для User ID
+	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // UserServiceImpl представляет собой реализацию сервиса для работы с пользователями
 type UserServiceImpl struct {
 	repo               models.UserRepository
-	transactionService models.TransactionService
+	transactionRepo    models.TransactionRepository
+	tonService         models.TONService
+	minWithdrawTON     float64
+	minWithdrawUSDT    float64
+	withdrawFeeTON     float64
+	withdrawFeeUSDT    float64
+	withdrawLockMinutes int
+	logger             *zap.Logger
 }
 
-// NewUserServiceImpl создает новый экземпляр UserServiceImpl
-func NewUserServiceImpl(repo models.UserRepository, ts models.TransactionService) models.UserService {
+// UserServiceConfig конфигурация сервиса пользователей
+type UserServiceConfig struct {
+	MinWithdrawTON      float64
+	MinWithdrawUSDT     float64
+	WithdrawFeeTON      float64
+	WithdrawFeeUSDT     float64
+	WithdrawLockMinutes int
+}
+
+// NewUserService создает новый экземпляр UserService
+func NewUserService(
+	repo models.UserRepository,
+	transactionRepo models.TransactionRepository,
+	tonService models.TONService,
+	config UserServiceConfig,
+) models.UserService {
 	return &UserServiceImpl{
-		repo:               repo,
-		transactionService: ts,
+		repo:                repo,
+		transactionRepo:     transactionRepo,
+		tonService:          tonService,
+		minWithdrawTON:      config.MinWithdrawTON,
+		minWithdrawUSDT:     config.MinWithdrawUSDT,
+		withdrawFeeTON:      config.WithdrawFeeTON,
+		withdrawFeeUSDT:     config.WithdrawFeeUSDT,
+		withdrawLockMinutes: config.WithdrawLockMinutes,
+		logger:              logger.GetLogger(zap.String("service", "user")),
 	}
 }
 
@@ -45,6 +75,9 @@ func (s *UserServiceImpl) CreateUser(ctx context.Context, user *models.User) err
 	user.Losses = 0
 	user.BalanceTon = 0.0
 	user.BalanceUsdt = 0.0
+	user.PendingWithdrawal = 0.0
+	user.TotalDeposited = 0.0
+	user.TotalWithdrawn = 0.0
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
 
@@ -68,8 +101,6 @@ func (s *UserServiceImpl) UpdateUser(ctx context.Context, user *models.User) err
 		return errors.New("telegram ID must be valid")
 	}
 
-	// Получаем существующего пользователя, чтобы убедиться, что он есть
-	// и чтобы не обновить случайно несуществующего или не изменить критичные поля
 	existingUser, err := s.repo.GetByTelegramID(ctx, user.TelegramID)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
@@ -78,11 +109,9 @@ func (s *UserServiceImpl) UpdateUser(ctx context.Context, user *models.User) err
 		return fmt.Errorf("error fetching user for update: %w", err)
 	}
 
-	// Обновляем только разрешенные поля. Не позволяем менять TelegramID, балансы напрямую этим методом.
 	existingUser.Username = user.Username
 	existingUser.FirstName = user.FirstName
 	existingUser.LastName = user.LastName
-	existingUser.Wallet = user.Wallet // Разрешаем обновление кошелька
 	existingUser.UpdatedAt = time.Now()
 
 	return s.repo.Update(ctx, existingUser)
@@ -93,7 +122,7 @@ func (s *UserServiceImpl) DeleteUser(ctx context.Context, telegramID uint64) err
 	if telegramID == 0 {
 		return errors.New("telegram ID must be valid")
 	}
-	// Сначала проверим, существует ли пользователь
+
 	_, err := s.repo.GetByTelegramID(ctx, telegramID)
 	if err != nil {
 		if errors.Is(err, models.ErrUserNotFound) {
@@ -112,19 +141,49 @@ func (s *UserServiceImpl) GetUserByUsername(ctx context.Context, username string
 	return s.repo.GetByUsername(ctx, username)
 }
 
-// UpdateTonBalance обновляет баланс пользователя в TON.
-// amount может быть положительным (пополнение) или отрицательным (списание).
+// UpdateWallet обновляет адрес кошелька пользователя
+func (s *UserServiceImpl) UpdateWallet(ctx context.Context, telegramID uint64, wallet string) error {
+	log := s.logger.With(zap.String("method", "UpdateWallet"), zap.Uint64("user_id", telegramID))
+
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	if wallet == "" {
+		return errors.New("wallet address cannot be empty")
+	}
+
+	// Валидируем адрес
+	if s.tonService != nil && !s.tonService.ValidateAddress(wallet) {
+		return errors.New("invalid wallet address")
+	}
+
+	// Проверяем, не занят ли кошелёк
+	existingUser, err := s.repo.GetByWallet(ctx, wallet)
+	if err == nil && existingUser != nil && existingUser.TelegramID != telegramID {
+		return errors.New("wallet already linked to another user")
+	}
+
+	log.Info("Updating wallet", zap.String("wallet", wallet))
+	return s.repo.UpdateWallet(ctx, telegramID, wallet)
+}
+
+// GetUserByWallet получает пользователя по адресу кошелька
+func (s *UserServiceImpl) GetUserByWallet(ctx context.Context, wallet string) (*models.User, error) {
+	if wallet == "" {
+		return nil, errors.New("wallet cannot be empty")
+	}
+	return s.repo.GetByWallet(ctx, wallet)
+}
+
+// UpdateTonBalance обновляет баланс пользователя в TON
 func (s *UserServiceImpl) UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error {
 	if telegramID == 0 {
 		return errors.New("telegram ID must be valid")
 	}
-	// Можно добавить проверку, что amount не приведет к отрицательному балансу, если это бизнес-требование
-	// или делегировать это репозиторию/базе данных
 	return s.repo.UpdateTonBalance(ctx, telegramID, amount)
 }
 
-// UpdateUsdtBalance обновляет баланс пользователя в USDT.
-// amount может быть положительным (пополнение) или отрицательным (списание).
+// UpdateUsdtBalance обновляет баланс пользователя в USDT
 func (s *UserServiceImpl) UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error {
 	if telegramID == 0 {
 		return errors.New("telegram ID must be valid")
@@ -132,56 +191,69 @@ func (s *UserServiceImpl) UpdateUsdtBalance(ctx context.Context, telegramID uint
 	return s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
 }
 
-// GetTopUsers получает список топ-пользователей (например, по количеству побед)
+// GetTopUsers получает список топ-пользователей
 func (s *UserServiceImpl) GetTopUsers(ctx context.Context, limit int) ([]*models.User, error) {
 	if limit <= 0 {
-		limit = 10 // Значение по умолчанию
+		limit = 10
 	}
 	return s.repo.GetTopUsers(ctx, limit)
 }
 
 // GetUserStats получает статистику пользователя
-func (s *UserServiceImpl) GetUserStats(ctx context.Context, telegramID uint64) (map[string]interface{}, error) {
+func (s *UserServiceImpl) GetUserStats(ctx context.Context, telegramID uint64) (map[string]any, error) {
 	if telegramID == 0 {
 		return nil, errors.New("telegram ID must be valid")
 	}
-	// Этот метод может быть реализован либо прямым вызовом s.repo.GetUserStats,
-	// либо сбором данных из user и, возможно, других репозиториев (например, historyRepo)
+
 	user, err := s.repo.GetByTelegramID(ctx, telegramID)
 	if err != nil {
 		return nil, err
 	}
-	stats := map[string]interface{}{
-		"telegram_id":  user.TelegramID,
-		"username":     user.Username,
-		"first_name":   user.FirstName,
-		"last_name":    user.LastName,
-		"wallet":       user.Wallet,
-		"wins":         user.Wins,
-		"losses":       user.Losses,
-		"balance_ton":  user.BalanceTon,
-		"balance_usdt": user.BalanceUsdt,
-		// Можно добавить win_rate, если это считается на уровне сервиса
+
+	stats := map[string]any{
+		"telegram_id":        user.TelegramID,
+		"username":           user.Username,
+		"first_name":         user.FirstName,
+		"last_name":          user.LastName,
+		"wallet":             user.Wallet,
+		"wins":               user.Wins,
+		"losses":             user.Losses,
+		"balance_ton":        user.BalanceTon,
+		"balance_usdt":       user.BalanceUsdt,
+		"pending_withdrawal": user.PendingWithdrawal,
+		"total_deposited":    user.TotalDeposited,
+		"total_withdrawn":    user.TotalWithdrawn,
 	}
+
 	if user.Wins+user.Losses > 0 {
 		stats["win_rate"] = float64(user.Wins) / float64(user.Wins+user.Losses)
 	} else {
 		stats["win_rate"] = 0.0
 	}
+
 	return stats, nil
 }
 
-// ValidateBalance проверяет, достаточен ли баланс пользователя для указанной суммы
+// IncrementWins увеличивает количество побед
+func (s *UserServiceImpl) IncrementWins(ctx context.Context, telegramID uint64) error {
+	return s.repo.IncrementWins(ctx, telegramID)
+}
+
+// IncrementLosses увеличивает количество поражений
+func (s *UserServiceImpl) IncrementLosses(ctx context.Context, telegramID uint64) error {
+	return s.repo.IncrementLosses(ctx, telegramID)
+}
+
+// ValidateBalance проверяет, достаточен ли баланс пользователя
 func (s *UserServiceImpl) ValidateBalance(ctx context.Context, telegramID uint64, requiredAmount float64, currency string) (bool, error) {
 	if telegramID == 0 {
 		return false, errors.New("telegram ID must be valid")
 	}
 	if requiredAmount < 0 {
-		// Снятие отрицательной суммы не имеет смысла для проверки баланса
 		return false, errors.New("required amount cannot be negative")
 	}
 	if requiredAmount == 0 {
-		return true, nil // Для нулевой суммы баланс всегда достаточен
+		return true, nil
 	}
 
 	user, err := s.repo.GetByTelegramID(ctx, telegramID)
@@ -191,82 +263,161 @@ func (s *UserServiceImpl) ValidateBalance(ctx context.Context, telegramID uint64
 
 	switch currency {
 	case models.CurrencyTON:
-		return user.BalanceTon >= requiredAmount, nil
+		return user.GetAvailableBalance(models.CurrencyTON) >= requiredAmount, nil
 	case models.CurrencyUSDT:
-		return user.BalanceUsdt >= requiredAmount, nil
+		return user.GetAvailableBalance(models.CurrencyUSDT) >= requiredAmount, nil
 	default:
 		return false, fmt.Errorf("unknown currency: %s", currency)
 	}
 }
 
-// RequestWithdraw запрашивает вывод средств с баланса пользователя
-func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64, amount float64, currency string) error {
-	if telegramID == 0 {
-		return errors.New("telegram ID must be valid")
-	}
-	if amount <= 0 {
-		return errors.New("withdraw amount must be positive")
-	}
-
-	// Проверяем поддерживаемую валюту
-	if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
-		return fmt.Errorf("unsupported currency: %s", currency)
-	}
-
-	// Проверяем, достаточно ли средств на балансе
-	hasBalance, err := s.ValidateBalance(ctx, telegramID, amount, currency)
-	if err != nil {
-		return fmt.Errorf("failed to validate balance: %w", err)
-	}
-	if !hasBalance {
-		return fmt.Errorf("insufficient %s balance", currency)
-	}
-
-	// Получаем пользователя для проверки адреса кошелька
+// CanWithdraw проверяет, может ли пользователь сделать вывод
+func (s *UserServiceImpl) CanWithdraw(ctx context.Context, telegramID uint64) (bool, error) {
 	user, err := s.repo.GetByTelegramID(ctx, telegramID)
 	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
+		return false, err
+	}
+	return user.CanWithdraw(), nil
+}
+
+// RequestWithdraw запрашивает вывод средств
+func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64, amount float64, currency string, toAddress string) (*models.WithdrawResult, error) {
+	log := s.logger.With(zap.String("method", "RequestWithdraw"),
+		zap.Uint64("user_id", telegramID),
+		zap.Float64("amount", amount),
+		zap.String("currency", currency))
+
+	if telegramID == 0 {
+		return nil, errors.New("telegram ID must be valid")
+	}
+	if amount <= 0 {
+		return nil, errors.New("withdraw amount must be positive")
+	}
+	if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
+		return nil, fmt.Errorf("unsupported currency: %s", currency)
 	}
 
-	if user.Wallet == "" {
-		return errors.New("wallet address not set")
+	// Определяем минимальную сумму и комиссию
+	var minWithdraw, fee float64
+	if currency == models.CurrencyTON {
+		minWithdraw = s.minWithdrawTON
+		fee = s.withdrawFeeTON
+	} else {
+		minWithdraw = s.minWithdrawUSDT
+		fee = s.withdrawFeeUSDT
 	}
 
-	// Создаем транзакцию вывода средств через transactionService
+	if amount < minWithdraw {
+		return nil, fmt.Errorf("minimum withdrawal is %.4f %s", minWithdraw, currency)
+	}
+
+	// Получаем пользователя
+	user, err := s.repo.GetByTelegramID(ctx, telegramID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Проверяем возможность вывода
+	if !user.CanWithdraw() {
+		return nil, errors.New("withdrawal is temporarily locked, please wait")
+	}
+
+	// Если адрес не передан, используем привязанный кошелёк
+	if toAddress == "" {
+		toAddress = user.Wallet
+	}
+	if toAddress == "" {
+		return nil, errors.New("wallet address not set")
+	}
+
+	// Валидируем адрес
+	if s.tonService != nil && !s.tonService.ValidateAddress(toAddress) {
+		return nil, errors.New("invalid wallet address")
+	}
+
+	// Проверяем баланс (с учётом комиссии)
+	totalRequired := amount
+	hasBalance, err := s.ValidateBalance(ctx, telegramID, totalRequired, currency)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate balance: %w", err)
+	}
+	if !hasBalance {
+		return nil, fmt.Errorf("insufficient %s balance", currency)
+	}
+
+	// Проверяем, нет ли уже pending вывода
+	if user.PendingWithdrawal > 0 {
+		return nil, errors.New("there is already a pending withdrawal")
+	}
+
+	// Начинаем транзакцию (упрощённо без реальной БД транзакции)
+	log.Info("Processing withdrawal request",
+		zap.Float64("amount", amount),
+		zap.Float64("fee", fee),
+		zap.String("to_address", toAddress))
+
+	// Списываем с баланса
+	if currency == models.CurrencyTON {
+		if err := s.repo.UpdateTonBalance(ctx, telegramID, -amount); err != nil {
+			return nil, fmt.Errorf("failed to deduct balance: %w", err)
+		}
+	} else {
+		if err := s.repo.UpdateUsdtBalance(ctx, telegramID, -amount); err != nil {
+			return nil, fmt.Errorf("failed to deduct balance: %w", err)
+		}
+	}
+
+	// Устанавливаем pending withdrawal и lock
+	if err := s.repo.UpdatePendingWithdrawal(ctx, telegramID, amount); err != nil {
+		// Откатываем
+		if currency == models.CurrencyTON {
+			_ = s.repo.UpdateTonBalance(ctx, telegramID, amount)
+		} else {
+			_ = s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
+		}
+		return nil, fmt.Errorf("failed to set pending withdrawal: %w", err)
+	}
+
+	// Устанавливаем блокировку на вывод
+	lockUntil := time.Now().Add(time.Duration(s.withdrawLockMinutes) * time.Minute)
+	if err := s.repo.SetWithdrawalLock(ctx, telegramID, lockUntil); err != nil {
+		log.Warn("Failed to set withdrawal lock", zap.Error(err))
+	}
+
+	// Создаём транзакцию
 	tx := &models.Transaction{
+		ID:          uuid.New(),
 		UserID:      telegramID,
 		Type:        models.TransactionTypeWithdraw,
 		Amount:      amount,
+		Fee:         fee,
 		Currency:    currency,
 		Status:      models.TransactionStatusPending,
-		Description: fmt.Sprintf("Withdraw %f %s to wallet %s", amount, currency, user.Wallet),
+		ToAddress:   toAddress,
+		Description: fmt.Sprintf("Withdraw %.4f %s to %s", amount-fee, currency, toAddress),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
-	if err := s.transactionService.CreateTransaction(ctx, tx); err != nil {
-		return fmt.Errorf("failed to create withdraw transaction: %w", err)
-	}
-
-	// Уменьшаем баланс пользователя (блокируем средства)
-	if currency == models.CurrencyTON {
-		if err := s.UpdateTonBalance(ctx, telegramID, -amount); err != nil {
-			// Если не удалось обновить баланс, отменяем транзакцию
-			if txErr := s.transactionService.FailTransaction(ctx, tx.ID, "Failed to update user balance"); txErr != nil {
-				// Логируем ошибку, но возвращаем первоначальную
-				fmt.Printf("ERROR: Failed to mark transaction %s as failed: %v\n", tx.ID, txErr)
-			}
-			return fmt.Errorf("failed to update TON balance: %w", err)
+	if err := s.transactionRepo.Create(ctx, tx); err != nil {
+		// Откатываем
+		_ = s.repo.UpdatePendingWithdrawal(ctx, telegramID, -amount)
+		if currency == models.CurrencyTON {
+			_ = s.repo.UpdateTonBalance(ctx, telegramID, amount)
+		} else {
+			_ = s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
 		}
-	} else {
-		if err := s.UpdateUsdtBalance(ctx, telegramID, -amount); err != nil {
-			// Если не удалось обновить баланс, отменяем транзакцию
-			if txErr := s.transactionService.FailTransaction(ctx, tx.ID, "Failed to update user balance"); txErr != nil {
-				fmt.Printf("ERROR: Failed to mark transaction %s as failed: %v\n", tx.ID, txErr)
-			}
-			return fmt.Errorf("failed to update USDT balance: %w", err)
-		}
+		return nil, fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	return nil
+	log.Info("Withdrawal request created",
+		zap.String("transaction_id", tx.ID.String()))
+
+	return &models.WithdrawResult{
+		TransactionID: tx.ID,
+		Status:        models.TransactionStatusPending,
+		Fee:           fee,
+	}, nil
 }
 
 // GetWithdrawHistory получает историю выводов средств пользователя
@@ -276,14 +427,14 @@ func (s *UserServiceImpl) GetWithdrawHistory(ctx context.Context, telegramID uin
 	}
 
 	if limit <= 0 {
-		limit = 10 // Значение по умолчанию
+		limit = 10
 	}
 	if offset < 0 {
 		offset = 0
 	}
 
-	// Получаем все транзакции пользователя
-	transactions, err := s.transactionService.GetUserTransactions(ctx, telegramID, 1000, 0)
+	// Получаем транзакции типа withdraw
+	transactions, err := s.transactionRepo.GetByUserID(ctx, telegramID, 1000, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user transactions: %w", err)
 	}
@@ -306,4 +457,17 @@ func (s *UserServiceImpl) GetWithdrawHistory(ctx context.Context, telegramID uin
 	}
 
 	return withdrawals[offset:end], nil
+}
+
+// Deprecated: для обратной совместимости
+func NewUserServiceImpl(repo models.UserRepository, ts models.TransactionService) models.UserService {
+	return &UserServiceImpl{
+		repo:                repo,
+		minWithdrawTON:      0.1,
+		minWithdrawUSDT:     1.0,
+		withdrawFeeTON:      0.05,
+		withdrawFeeUSDT:     0.5,
+		withdrawLockMinutes: 5,
+		logger:              logger.GetLogger(zap.String("service", "user")),
+	}
 }

@@ -1,5 +1,5 @@
 # Development конфигурация Wordle Betting
-# Просто запустите: go run cmd/api/main.go
+# Для локальной разработки
 
 environment: dev
 network: ton
@@ -27,8 +27,8 @@ redis:
 
 auth:
   enabled: false
-  jwt_secret: dev_secret_key_12345
-  bot_token: ""
+  jwt_secret: dev_secret_key_12345_not_for_production
+  bot_token: ""  # Не требуется в dev режиме
   token_ttl: 24h
 
 metrics:
@@ -42,14 +42,19 @@ logging:
 
 blockchain:
   ton:
-    api_endpoint: https://testnet.toncenter.com/api/v2
-    api_key: ""
+    api_endpoint: https://testnet.toncenter.com/api/v3
+    api_key: ""  # Опционально для testnet
     master_wallet: ""
-    master_wallet_secret: ""
-    min_withdraw: 0.1
-    withdraw_fee: 0.01
+    master_wallet_seed: ""  # 24 слова через пробел
+    min_withdraw_ton: 0.1
+    min_withdraw_usdt: 1.0
+    withdraw_fee_ton: 0.05
+    withdraw_fee_usdt: 0.5
     required_confirmations: 1
     testnet: true
+    usdt_master_address: ""
+    worker_poll_interval: 10
+    commission_rate: 0.05
 
   ethereum:
     rpc_url: ""

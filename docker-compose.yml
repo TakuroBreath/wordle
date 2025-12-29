@@ -1,5 +1,11 @@
 version: "3.8"
 
+# Production Docker Compose
+# Использование:
+#   1. Скопируйте конфиг: cp configs/config.docker.prod.yaml configs/config.docker.local.yaml
+#   2. Заполните секреты в config.docker.local.yaml
+#   3. Запустите: docker-compose up -d
+
 services:
   app:
     build: .
@@ -13,33 +19,19 @@ services:
         condition: service_started
     ports:
       - "8080:8080"
+      - "9090:9090"
     environment:
-      HTTP_PORT: 8080
-      HTTP_READ_TIMEOUT: 10s
-      HTTP_WRITE_TIMEOUT: 10s
-      HTTP_IDLE_TIMEOUT: 60s
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: wordle
-      POSTGRES_SSLMODE: disable
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      REDIS_DB: 0
-      JWT_SECRET: your-jwt-secret
-      BOT_TOKEN: 7613582783:AAE5_-7beHhGHQi60PIPAfddMGecE_Dnmq0
-      SERVICE_NAME: wordle-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
-      INSECURE_MODE: "true"
-      LOG_LEVEL: info
-      LOG_FORMAT: json
-      LOG_OUTPUT: stdout
-      PRODUCTION: "true"
-      METRICS_ENABLED: "true"
-      METRICS_PORT: 9090
+      CONFIG_PATH: /app/config.yaml
+    volumes:
+      # Монтируем конфиг файл (используйте config.docker.local.yaml для prod)
+      - ./configs/config.docker.yaml:/app/config.yaml:ro
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - wordle-network
 
@@ -48,8 +40,8 @@ services:
     container_name: jaeger
     ports:
       - "16686:16686" # UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
@@ -67,7 +59,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -84,7 +76,7 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -95,7 +87,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-
 
 networks:
   wordle-network:

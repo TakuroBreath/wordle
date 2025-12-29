@@ -282,17 +282,20 @@ func (s *TransactionServiceImpl) GetTransactionStats(ctx context.Context, userID
 }
 
 // ProcessWithdraw обрабатывает вывод средств
-func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uint64, amount float64, currency string) error {
+func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uint64, amount float64, currency string, toAddress string) (*models.Transaction, error) {
 	if userID == 0 {
-		return errors.New("user ID (TelegramID) cannot be zero")
+		return nil, errors.New("user ID (TelegramID) cannot be zero")
 	}
 	if amount <= 0 {
-		return errors.New("withdraw amount must be positive")
+		return nil, errors.New("withdraw amount must be positive")
+	}
+	if toAddress == "" {
+		return nil, errors.New("destination address cannot be empty")
 	}
 
 	user, err := s.userRepo.GetByTelegramID(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("user not found for withdrawal: %w", err)
+		return nil, fmt.Errorf("user not found for withdrawal: %w", err)
 	}
 
 	// Проверка баланса в зависимости от валюты
@@ -304,7 +307,7 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 	}
 
 	if !sufficientBalance {
-		return fmt.Errorf("insufficient %s balance for withdrawal. Has: %.2f, Wants: %.2f", currency, func() float64 {
+		return nil, fmt.Errorf("insufficient %s balance for withdrawal. Has: %.2f, Wants: %.2f", currency, func() float64 {
 			if currency == models.CurrencyTON {
 				return user.BalanceTon
 			} else {
@@ -314,25 +317,25 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 	}
 
 	tx := &models.Transaction{
-		ID:        uuid.New(),
-		UserID:    userID,
-		Type:      models.TransactionTypeWithdraw,
-		Amount:    amount,
-		Currency:  currency,
-		Status:    models.TransactionStatusPending, // Статус Pending, пока не подтвердится реальный вывод
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:          uuid.New(),
+		UserID:      userID,
+		Type:        models.TransactionTypeWithdraw,
+		Amount:      amount,
+		Currency:    currency,
+		Status:      models.TransactionStatusPending, // Статус Pending, пока не подтвердится реальный вывод
+		ToAddress:   toAddress,
+		Description: fmt.Sprintf("Withdrawal of %.6f %s to %s", amount, currency, toAddress),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	if err := s.transactionRepo.Create(ctx, tx); err != nil {
-		return fmt.Errorf("failed to create withdrawal transaction: %w", err)
+		return nil, fmt.Errorf("failed to create withdrawal transaction: %w", err)
 	}
 
 	// Списание с баланса происходит ПОСЛЕ успешного подтверждения вывода
 	// Здесь мы только создаем транзакцию. Фактическое обновление баланса - отдельный шаг.
-	// Или, если это внутренний перевод, можно обновлять баланс сразу, но статус транзакции ставить Completed.
-	// Пока оставляем так, подразумевая, что есть внешний процесс для подтверждения вывода.
-	return nil
+	return tx, nil
 }
 
 // ProcessDeposit обрабатывает пополнение средств
@@ -480,7 +483,7 @@ func (s *TransactionServiceImpl) ConfirmDeposit(ctx context.Context, transaction
 }
 
 // ConfirmWithdrawal подтверждает транзакцию вывода и обновляет баланс пользователя.
-func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transactionID uuid.UUID) error {
+func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transactionID uuid.UUID, txHash string) error {
 	if transactionID == uuid.Nil {
 		return errors.New("transaction ID cannot be nil for withdrawal confirmation")
 	}
@@ -551,6 +554,7 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 	}
 
 	tx.Status = models.TransactionStatusCompleted
+	tx.TxHash = txHash
 	tx.UpdatedAt = time.Now()
 	if err := s.transactionRepo.Update(ctx, tx); err != nil {
 		// Баланс обновлен, но статус транзакции не удалось обновить. Это серьезная проблема.
@@ -846,20 +850,42 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 }
 
 // IsTransactionProcessed проверяет, была ли транзакция уже обработана
-func (s *TransactionServiceImpl) IsTransactionProcessed(ctx context.Context, txHash string, network string) bool {
+func (s *TransactionServiceImpl) IsTransactionProcessed(ctx context.Context, txHash string) bool {
 	if txHash == "" {
 		return false
 	}
 
-	if s.blockchainProvider == nil {
-		return false
+	// Сначала проверяем в базе данных
+	exists, err := s.transactionRepo.ExistsByTxHash(ctx, txHash)
+	if err == nil && exists {
+		return true
 	}
 
-	processed, err := s.blockchainProvider.IsTransactionProcessed(ctx, txHash)
-	if err != nil {
-		fmt.Printf("ERROR: Failed to check if transaction %s is processed: %v\n", txHash, err)
-		return false
+	// Если нет в базе, проверяем через blockchain provider
+	if s.blockchainProvider != nil {
+		processed, err := s.blockchainProvider.IsTransactionProcessed(ctx, txHash)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to check if transaction %s is processed: %v\n", txHash, err)
+			return false
+		}
+		return processed
 	}
 
-	return processed
+	return false
+}
+
+// GetTransactionByTxHash получает транзакцию по хешу
+func (s *TransactionServiceImpl) GetTransactionByTxHash(ctx context.Context, txHash string) (*models.Transaction, error) {
+	if txHash == "" {
+		return nil, errors.New("transaction hash cannot be empty")
+	}
+	return s.transactionRepo.GetByTxHash(ctx, txHash)
+}
+
+// ExistsByTxHash проверяет существование транзакции по хешу
+func (s *TransactionServiceImpl) ExistsByTxHash(ctx context.Context, txHash string) (bool, error) {
+	if txHash == "" {
+		return false, errors.New("transaction hash cannot be empty")
+	}
+	return s.transactionRepo.ExistsByTxHash(ctx, txHash)
 }

@@ -1,0 +1,132 @@
+# Локальная конфигурация - ШАБЛОН
+# 
+# Инструкция:
+# 1. Скопируйте этот файл: cp config.local.yaml.example config.local.yaml
+# 2. Заполните все поля с YOUR_* и CHANGE_ME_*
+# 3. Никогда не коммитьте config.local.yaml в git!
+#
+# Приоритет загрузки конфигов:
+# 1. CONFIG_PATH env variable
+# 2. ./config.yaml
+# 3. ./configs/config.local.yaml  <-- этот файл
+# 4. ./configs/config.dev.yaml
+
+environment: prod  # или dev для разработки
+network: ton
+use_mock_provider: false
+
+http:
+  port: "8080"
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 120s
+
+# ============================================
+# База данных PostgreSQL
+# ============================================
+postgres:
+  host: localhost
+  port: "5432"
+  user: postgres
+  password: YOUR_POSTGRES_PASSWORD
+  db_name: wordle
+  ssl_mode: disable  # require для production
+
+# ============================================
+# Redis
+# ============================================
+redis:
+  host: localhost
+  port: "6379"
+  password: ""  # Установите пароль для production
+  db: 0
+
+# ============================================
+# Аутентификация
+# ============================================
+auth:
+  enabled: true
+  
+  # JWT секрет - минимум 32 символа, случайная строка
+  # Генерация: openssl rand -hex 32
+  jwt_secret: YOUR_JWT_SECRET_MIN_32_CHARACTERS_HERE
+  
+  # Telegram Bot Token
+  # Получите у @BotFather
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  
+  token_ttl: 24h
+
+# ============================================
+# Метрики Prometheus
+# ============================================
+metrics:
+  enabled: true
+  port: "9090"
+
+# ============================================
+# Логирование
+# ============================================
+logging:
+  level: info    # debug, info, warn, error
+  format: json   # json или console
+  output: stdout
+
+# ============================================
+# Блокчейн - TON
+# ============================================
+blockchain:
+  ton:
+    # API Endpoint
+    # Testnet: https://testnet.toncenter.com/api/v3
+    # Mainnet: https://toncenter.com/api/v3
+    api_endpoint: https://testnet.toncenter.com/api/v3
+    
+    # API ключ от toncenter.com (бесплатный лимит 10 rps)
+    # Получите на https://toncenter.com/
+    api_key: YOUR_TONCENTER_API_KEY
+    
+    # Адрес кастодиального кошелька платформы
+    # Формат: EQ... или UQ...
+    master_wallet: YOUR_WALLET_ADDRESS
+    
+    # ⚠️ КРИТИЧНО: Seed фраза кошелька
+    # 24 слова через пробел
+    # Храните в безопасности! Не делитесь ни с кем!
+    master_wallet_seed: "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24"
+    
+    # Минимальные суммы для вывода
+    min_withdraw_ton: 0.1
+    min_withdraw_usdt: 1.0
+    
+    # Комиссии сети при выводе
+    withdraw_fee_ton: 0.05
+    withdraw_fee_usdt: 0.5
+    
+    # Количество подтверждений транзакции
+    required_confirmations: 1
+    
+    # true для testnet, false для mainnet
+    testnet: true
+    
+    # USDT Jetton Master Address
+    # Testnet: kQBqSpvo4S87mX9tjHaG4zhYZeORhVhMapBJpnMZ64jhrP-A
+    # Mainnet: EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
+    usdt_master_address: kQBqSpvo4S87mX9tjHaG4zhYZeORhVhMapBJpnMZ64jhrP-A
+    
+    # Интервал опроса воркером (секунды)
+    worker_poll_interval: 10
+    
+    # Комиссия платформы (0.05 = 5%)
+    commission_rate: 0.05
+
+  # Ethereum (не используется, оставлено для совместимости)
+  ethereum:
+    rpc_url: ""
+    chain_id: 1
+    master_wallet: ""
+    private_key: ""
+    min_withdraw: 0.01
+    withdraw_fee: 0.005
+    required_confirmations: 12
+    usdt_contract: ""

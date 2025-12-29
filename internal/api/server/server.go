@@ -39,6 +39,7 @@ func NewServer(cfg Config, services *service.ServiceImpl) *Server {
 		services.Game(),
 		services.Lobby(),
 		services.Transaction(),
+		services.TONService(),
 		routes.RouterConfig{
 			AuthEnabled: cfg.AuthEnabled,
 			BotToken:    cfg.BotToken,

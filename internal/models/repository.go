@@ -10,30 +10,34 @@ import (
 
 // Определяем ошибки для репозитория
 var (
-	ErrLobbyNotFound = errors.New("lobby not found")
+	ErrLobbyNotFound       = errors.New("lobby not found")
+	ErrUserNotFound        = errors.New("user not found")
+	ErrGameNotFound        = errors.New("game not found")
+	ErrTransactionNotFound = errors.New("transaction not found")
+	ErrInsufficientFunds   = errors.New("insufficient funds")
+	ErrDuplicateTransaction = errors.New("duplicate transaction")
 )
-
-// ErrUserNotFound ошибка, когда пользователь не найден
-var ErrUserNotFound = errors.New("user not found")
-
-// ErrGameNotFound ошибка, когда игра не найдена
-var ErrGameNotFound = errors.New("game not found")
 
 // GameRepository определяет методы для работы с играми
 type GameRepository interface {
 	Create(ctx context.Context, game *Game) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Game, error)
+	GetByShortID(ctx context.Context, shortID string) (*Game, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
 	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
 	Update(ctx context.Context, game *Game) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Game, error)
+	GetPending(ctx context.Context, limit, offset int) ([]*Game, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
-	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error)
+	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error)
 	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateRewardPool(ctx context.Context, id uuid.UUID, rewardPoolTon, rewardPoolUsdt float64) error
+	UpdateReservedAmount(ctx context.Context, id uuid.UUID, reservedAmount float64) error
+	IncrementReservedAmount(ctx context.Context, id uuid.UUID, amount float64) error
+	DecrementReservedAmount(ctx context.Context, id uuid.UUID, amount float64) error
 }
 
 // UserRepository определяет методы для работы с пользователями
@@ -43,11 +47,17 @@ type UserRepository interface {
 	Update(ctx context.Context, user *User) error
 	Delete(ctx context.Context, telegramID uint64) error
 	GetByUsername(ctx context.Context, username string) (*User, error)
+	GetByWallet(ctx context.Context, wallet string) (*User, error)
+	UpdateWallet(ctx context.Context, telegramID uint64, wallet string) error
 	UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error
 	UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error
+	UpdatePendingWithdrawal(ctx context.Context, telegramID uint64, amount float64) error
+	SetWithdrawalLock(ctx context.Context, telegramID uint64, lockUntil time.Time) error
 	GetTopUsers(ctx context.Context, limit int) ([]*User, error)
-	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+	GetUserStats(ctx context.Context, userID uint64) (map[string]any, error)
 	ValidateBalance(ctx context.Context, userID uint64, requiredAmount float64) (bool, error)
+	IncrementWins(ctx context.Context, telegramID uint64) error
+	IncrementLosses(ctx context.Context, telegramID uint64) error
 }
 
 // LobbyRepository определяет методы для работы с лобби
@@ -56,6 +66,7 @@ type LobbyRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Lobby, error)
 	GetByGameID(ctx context.Context, gameID uuid.UUID, limit, offset int) ([]*Lobby, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Lobby, error)
+	GetPendingByGameShortID(ctx context.Context, gameShortID string, userID uint64) (*Lobby, error)
 	Update(ctx context.Context, lobby *Lobby) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetActive(ctx context.Context, limit, offset int) ([]*Lobby, error)
@@ -69,7 +80,8 @@ type LobbyRepository interface {
 	ExtendExpirationTime(ctx context.Context, id uuid.UUID, duration int) error
 	GetLobbiesByStatus(ctx context.Context, status string, limit, offset int) ([]*Lobby, error)
 	GetActiveLobbiesByTimeRange(ctx context.Context, startTime, endTime time.Time, limit, offset int) ([]*Lobby, error)
-	GetLobbyStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error)
+	GetLobbyStats(ctx context.Context, lobbyID uuid.UUID) (map[string]any, error)
+	StartLobby(ctx context.Context, id uuid.UUID, expiresAt time.Time) error
 }
 
 // AttemptRepository определяет методы для работы с попытками
@@ -82,7 +94,7 @@ type AttemptRepository interface {
 	GetLastAttempt(ctx context.Context, lobbyID uuid.UUID, userID uint64) (*Attempt, error)
 	CountByLobbyID(ctx context.Context, lobbyID uuid.UUID) (int, error)
 	GetByWord(ctx context.Context, lobbyID uuid.UUID, word string) (*Attempt, error)
-	GetAttemptStats(ctx context.Context, lobbyID uuid.UUID) (map[string]interface{}, error)
+	GetAttemptStats(ctx context.Context, lobbyID uuid.UUID) (map[string]any, error)
 	ValidateWord(ctx context.Context, word string) (bool, error)
 }
 
@@ -97,20 +109,27 @@ type HistoryRepository interface {
 	GetByLobbyID(ctx context.Context, lobbyID uuid.UUID) (*History, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*History, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
-	GetUserStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
-	GetGameHistoryStats(ctx context.Context, gameID uuid.UUID) (map[string]interface{}, error)
+	GetUserStats(ctx context.Context, userID uint64) (map[string]any, error)
+	GetGameHistoryStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error)
 }
 
 // TransactionRepository определяет методы для работы с транзакциями
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction *Transaction) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Transaction, error)
+	GetByTxHash(ctx context.Context, txHash string) (*Transaction, error)
 	GetByUserID(ctx context.Context, userID uint64, limit, offset int) ([]*Transaction, error)
 	Update(ctx context.Context, transaction *Transaction) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetByType(ctx context.Context, transactionType string, limit, offset int) ([]*Transaction, error)
+	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Transaction, error)
+	GetPendingByGameShortID(ctx context.Context, gameShortID string) ([]*Transaction, error)
+	GetPendingWithdrawals(ctx context.Context, limit int) ([]*Transaction, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
 	GetUserBalance(ctx context.Context, userID uint64) (float64, error)
-	GetTransactionStats(ctx context.Context, userID uint64) (map[string]interface{}, error)
+	GetTransactionStats(ctx context.Context, userID uint64) (map[string]any, error)
 	CheckSufficientFunds(ctx context.Context, userID uint64, amount float64) (bool, error)
+	ExistsByTxHash(ctx context.Context, txHash string) (bool, error)
+	GetLastProcessedLt(ctx context.Context) (int64, error)
+	UpdateLastProcessedLt(ctx context.Context, lt int64) error
 }

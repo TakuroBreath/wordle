@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
-import { gameAPI, lobbyAPI } from '../api';
+import { gameAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 import BetModal from '../components/BetModal';
 
@@ -151,15 +151,29 @@ const ErrorMessage = styled.div`
   font-size: 14px;
 `;
 
+const PaymentPendingNotice = styled.div`
+  background-color: #fff8e1;
+  border: 1px solid #ffcc80;
+  color: #f57f17;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  font-size: 14px;
+  text-align: center;
+`;
+
 const GamePage = () => {
     const { id } = useParams();
-    const { user, isAuthenticated } = useAuth();
+    const { user, isAuthenticated, refreshUserData } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const [game, setGame] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showBetModal, setShowBetModal] = useState(false);
+    const [paymentInfo, setPaymentInfo] = useState(null);
+    const [paymentPending, setPaymentPending] = useState(location.state?.paymentPending || false);
 
     // Загрузка данных игры
     const fetchGameData = useCallback(async () => {
@@ -225,24 +239,49 @@ const GamePage = () => {
     };
 
     // Присоединение к игре
-    const handleJoinGame = () => {
+    const handleJoinGame = async () => {
         if (!isAuthenticated) {
             setError('Необходимо авторизоваться для участия в игре');
             return;
         }
 
-        setShowBetModal(true);
+        // Получаем информацию о платеже, если баланса недостаточно
+        try {
+            setLoading(true);
+            // Обновляем данные пользователя для получения актуального баланса
+            await refreshUserData();
+            setShowBetModal(true);
+        } catch (err) {
+            console.error('Error preparing join:', err);
+            setError('Не удалось подготовить присоединение к игре');
+        } finally {
+            setLoading(false);
+        }
     };
 
     // Подтверждение ставки
-    const handleBetSubmit = async (betAmount) => {
+    const handleBetSubmit = async (betAmount, isBlockchainPayment = false) => {
         try {
             setLoading(true);
-            const response = await lobbyAPI.joinGame(id, betAmount);
+            setError(null);
+            
+            // Используем gameAPI.joinGame для присоединения
+            const response = await gameAPI.joinGame(id, betAmount);
             setShowBetModal(false);
 
-            // Переходим на страницу лобби
-            navigate(`/lobbies/${response.data.id}`);
+            // Если требуется blockchain платеж
+            if (response.data.payment_required && response.data.payment_info) {
+                setPaymentInfo(response.data.payment_info);
+                setPaymentPending(true);
+                return;
+            }
+
+            // Если есть лобби - переходим на страницу лобби
+            if (response.data.lobby_id) {
+                navigate(`/lobbies/${response.data.lobby_id}`);
+            } else if (response.data.id) {
+                navigate(`/lobbies/${response.data.id}`);
+            }
         } catch (err) {
             console.error('Error joining game:', err);
             setError(err.response?.data?.error || 'Не удалось присоединиться к игре');
@@ -327,6 +366,10 @@ const GamePage = () => {
                     <InfoValue>{game.max_tries}</InfoValue>
                 </InfoRow>
                 <InfoRow>
+                    <InfoLabel>Время на игру</InfoLabel>
+                    <InfoValue>{game.time_limit || 5} мин</InfoValue>
+                </InfoRow>
+                <InfoRow>
                     <InfoLabel>Ставка</InfoLabel>
                     <InfoValue>{formatAmount(game.min_bet)} - {formatAmount(game.max_bet)} {game.currency}</InfoValue>
                 </InfoRow>
@@ -379,7 +422,15 @@ const GamePage = () => {
                     onClose={() => setShowBetModal(false)}
                     onSubmit={handleBetSubmit}
                     userBalance={user}
+                    paymentInfo={paymentInfo}
                 />
+            )}
+
+            {paymentPending && (
+                <PaymentPendingNotice>
+                    ⏳ Ожидание подтверждения платежа...
+                    После подтверждения транзакции игра автоматически активируется.
+                </PaymentPendingNotice>
             )}
         </Container>
     );
