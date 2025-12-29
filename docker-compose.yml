@@ -15,8 +15,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     ports:
       - "8080:8080"
       - "9090:9090"
@@ -25,6 +23,7 @@ services:
     volumes:
       # Монтируем конфиг файл (используйте config.docker.local.yaml для prod)
       - ./configs/config.docker.yaml:/app/config.yaml:ro
+      - app_logs:/var/log/wordle
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -32,18 +31,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    networks:
-      - wordle-network
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    ports:
-      - "16686:16686" # UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - wordle-network
 
@@ -87,6 +74,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  app_logs:
+    name: wordle_app_logs
 
 networks:
   wordle-network:

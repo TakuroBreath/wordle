@@ -2,17 +2,17 @@ package app
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/api/server"
 	"github.com/TakuroBreath/wordle/internal/config"
+	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/repository"
 	"github.com/TakuroBreath/wordle/internal/repository/postgresql"
 	"github.com/TakuroBreath/wordle/internal/repository/redis"
 	"github.com/TakuroBreath/wordle/internal/service"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
-	otel "github.com/TakuroBreath/wordle/pkg/tracing"
+	"go.uber.org/zap"
 )
 
 // App представляет структуру приложения
@@ -74,13 +74,13 @@ func New(cfg *config.Config) (*App, error) {
 // Run запускает приложение
 func (a *App) Run() error {
 	// Логируем конфигурацию
-	log.Printf("Starting application with config: %s", a.cfg.String())
-	log.Printf("Environment: %s, Network: %s, Auth enabled: %v, Mock provider: %v",
-		a.cfg.Environment, a.cfg.Network, a.cfg.IsAuthEnabled(), a.cfg.UseMockProvider)
-
-	// Инициализация OpenTelemetry
-	cleanup := otel.InitTracer()
-	defer cleanup(context.Background())
+	logger.Log.Info("Starting application",
+		zap.String("config", a.cfg.String()),
+		zap.String("environment", string(a.cfg.Environment)),
+		zap.String("network", string(a.cfg.Network)),
+		zap.Bool("auth_enabled", a.cfg.IsAuthEnabled()),
+		zap.Bool("mock_provider", a.cfg.UseMockProvider),
+	)
 
 	// Инициализация Prometheus метрик
 	metrics.InitMetrics(a.cfg.Metrics.Enabled, a.cfg.Metrics.Port)
@@ -104,13 +104,13 @@ func (a *App) Shutdown() {
 	// Закрытие соединений с базами данных
 	if closer, ok := a.repos.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
-			log.Printf("Failed to close PostgreSQL connection: %v", err)
+			logger.Log.Warn("Failed to close PostgreSQL connection", zap.Error(err))
 		}
 	}
 
 	if closer, ok := a.redis.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
-			log.Printf("Failed to close Redis connection: %v", err)
+			logger.Log.Warn("Failed to close Redis connection", zap.Error(err))
 		}
 	}
 }

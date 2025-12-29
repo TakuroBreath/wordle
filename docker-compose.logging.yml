@@ -1,79 +1,38 @@
 version: '3.8'
 
 services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.4
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: loki
     ports:
-      - "9200:9200"
+      - "3100:3100"
+    volumes:
+      - ./configs/loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
       - logging
 
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.10.4
-    container_name: logstash
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: promtail
+    depends_on:
+      - loki
     volumes:
-      - ./configs/logstash/pipeline:/usr/share/logstash/pipeline
-      - ./configs/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
-    ports:
-      - "5044:5044"
-      - "5001:5001/tcp"
-      - "5001:5001/udp"
-      - "9600:9600"
-    environment:
-      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+      - ./configs/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - app_logs:/var/log/wordle:ro
+      - promtail_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml
     networks:
       - logging
-    depends_on:
-      - elasticsearch
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.10.4
-    container_name: kibana
-    ports:
-      - "5601:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    networks:
-      - logging
-    depends_on:
-      - elasticsearch
-
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:8.10.4
-    container_name: filebeat
-    user: root
-    volumes:
-      - ./configs/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - filebeat_data:/usr/share/filebeat/data
-    command: [ "--strict.perms=false" ]
-    networks:
-      - logging
-      - wordle-network
-    depends_on:
-      - elasticsearch
-      - logstash
 
 volumes:
-  elasticsearch_data:
-  filebeat_data:
+  loki_data:
+  promtail_positions:
+  app_logs:
+    name: wordle_app_logs
 
 
 networks:
   logging:
     driver: bridge
-  wordle-network:
-    external: true

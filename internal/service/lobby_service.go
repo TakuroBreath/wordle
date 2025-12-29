@@ -452,6 +452,17 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 		historyStatus = models.HistoryStatusPlayerWin
 		reward = s.CalculateReward(lobby.BetAmount, game.RewardMultiplier, lobby.TriesUsed, lobby.MaxTries)
 
+		// Ревеню сервиса = комиссия, удержанная из gross reward
+		if lobby.TriesUsed > 0 && lobby.MaxTries > 0 && lobby.TriesUsed <= lobby.MaxTries {
+			triesBonus := 1.0 + (float64(lobby.MaxTries-lobby.TriesUsed)/float64(lobby.MaxTries))*0.5
+			baseReward := lobby.BetAmount * game.RewardMultiplier
+			grossReward := baseReward * triesBonus
+			commission := grossReward - reward
+			if commission > 0 {
+				metrics.AddRevenue(commission, game.Currency, "game_commission")
+			}
+		}
+
 		log.Info("Player won",
 			zap.Float64("bet", lobby.BetAmount),
 			zap.Float64("reward", reward))
@@ -508,6 +519,9 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 		// Начисляем комиссию сервису (в реальности - отдельный кошелёк)
 		// Здесь просто логируем
 		log.Info("Commission earned", zap.Float64("amount", commission))
+		if commission > 0 {
+			metrics.AddRevenue(commission, game.Currency, "game_commission")
+		}
 
 		// Обновляем статистику пользователя
 		_ = s.userService.IncrementLosses(ctx, lobby.UserID)

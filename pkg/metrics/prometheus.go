@@ -23,6 +23,11 @@ type MetricsRegistry struct {
 	GameAbandonedTotal  prometheus.Counter
 	ActiveGamesGauge    prometheus.Gauge
 	WordGuessedCounters *prometheus.CounterVec
+
+	// Денежные метрики (суммы в основных единицах валюты)
+	MoneyDepositedTotal *prometheus.CounterVec
+	MoneyWithdrawnTotal *prometheus.CounterVec
+	RevenueTotal        *prometheus.CounterVec
 }
 
 // NewMetricsRegistry создает и регистрирует все метрики
@@ -83,6 +88,28 @@ func NewMetricsRegistry() *MetricsRegistry {
 				Help: "Статистика угаданных слов",
 			},
 			[]string{"attempts"},
+		),
+
+		MoneyDepositedTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_money_deposited_total",
+				Help: "Суммарно внесено средств (по валютам и источникам)",
+			},
+			[]string{"currency", "source"},
+		),
+		MoneyWithdrawnTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_money_withdrawn_total",
+				Help: "Суммарно выведено средств пользователям (нетто, по валютам)",
+			},
+			[]string{"currency"},
+		),
+		RevenueTotal: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "wordle_revenue_total",
+				Help: "Суммарное ревеню проекта (комиссии/fees, по валютам и типам)",
+			},
+			[]string{"currency", "type"},
 		),
 	}
 

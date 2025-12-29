@@ -40,6 +40,7 @@ logging:
   level: debug
   format: json
   output: stdout
+  filePath: /var/log/wordle/app.json
 
 blockchain:
   ton:

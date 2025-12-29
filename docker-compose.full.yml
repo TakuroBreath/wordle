@@ -9,12 +9,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     ports:
       - "8080:8080"
       - "9090:9090"
     environment:
+      CONFIG_PATH: /app/config.yaml
       HTTP_PORT: 8080
       HTTP_READ_TIMEOUT: 10s
       HTTP_WRITE_TIMEOUT: 10s
@@ -33,32 +32,20 @@ services:
       BOT_TOKEN: 7613582783:AAE5_-7beHhGHQi60PIPAfddMGecE_Dnmq0
       TONAPI_KEY: AEGOUR3VZ55ERHAAAAAMTQ2R57ID43WZOBVAJLBOSMKRV52G26CT7PLHQG6NOOTU432NYVQ
       SERVICE_NAME: wordle-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
-      INSECURE_MODE: "true"
       LOG_LEVEL: info
       LOG_FORMAT: json
       LOG_OUTPUT: stdout
       PRODUCTION: "true"
       METRICS_ENABLED: "true"
       METRICS_PORT: 9090
+    volumes:
+      - ./configs/config.docker.yaml:/app/config.yaml:ro
+      - app_logs:/var/log/wordle
     restart: unless-stopped
     networks:
       - wordle-network
       - monitoring
       - logging
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    ports:
-      - "16686:16686" # UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks:
-      - wordle-network
-      - monitoring
 
   postgres:
     image: postgres:15-alpine
@@ -135,85 +122,45 @@ services:
       - prometheus
     networks:
       - monitoring
+      - logging
 
-  # Логирование
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.4
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+  # Логирование (Grafana Loki + Promtail)
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: loki
     ports:
-      - "9200:9200"
-    networks:
-      - logging
-    restart: unless-stopped
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.10.4
-    container_name: logstash
+      - "3100:3100"
     volumes:
-      - ./configs/logstash/pipeline:/usr/share/logstash/pipeline
-      - ./configs/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
-    ports:
-      - "5044:5044"
-      - "5001:5001/tcp"
-      - "5001:5001/udp"
-      - "9600:9600"
-    environment:
-      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+      - ./configs/loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
     networks:
       - logging
-    depends_on:
-      - elasticsearch
-    restart: unless-stopped
 
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.10.4
-    container_name: kibana
-    ports:
-      - "5601:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    networks:
-      - logging
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: promtail
     depends_on:
-      - elasticsearch
-    restart: unless-stopped
-
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:8.10.4
-    container_name: filebeat
-    user: root
+      - loki
     volumes:
-      - ./configs/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - filebeat_data:/usr/share/filebeat/data
-    command: [ "--strict.perms=false" ]
+      - ./configs/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - app_logs:/var/log/wordle:ro
+      - promtail_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
     networks:
       - logging
-      - wordle-network
-    depends_on:
-      - elasticsearch
-      - logstash
-    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
-  elasticsearch_data:
-  filebeat_data:
+  loki_data:
+  promtail_positions:
+  app_logs:
+    name: wordle_app_logs
 
 
 networks:

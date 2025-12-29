@@ -6,10 +6,8 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/models"
-	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // GameHandler представляет обработчики для игр
@@ -37,18 +35,11 @@ func NewGameHandler(
 
 // CreateGame создает новую игру
 func (h *GameHandler) CreateGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.CreateGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
-		span.SetAttributes(attribute.String("error", "user not found in context"))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
 	}
-
-	span.SetAttributes(attribute.Int64("user_id", int64(userID)))
 
 	var input struct {
 		Word             string  `json:"word" binding:"required"`
@@ -64,7 +55,6 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		otel.RecordError(ctx, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -113,7 +103,6 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 	}
 
 	if err := h.gameService.CreateGame(c, game); err != nil {
-		otel.RecordError(ctx, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -165,12 +154,7 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 
 // GetGame получает информацию об игре
 func (h *GameHandler) GetGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	idStr := c.Param("id")
-	span.SetAttributes(attribute.String("game_id_param", idStr))
 
 	// Пробуем сначала как UUID
 	id, err := uuid.Parse(idStr)
@@ -226,10 +210,6 @@ func (h *GameHandler) GetGame(c *gin.Context) {
 
 // GetPaymentInfo получает информацию для оплаты депозита игры
 func (h *GameHandler) GetPaymentInfo(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetPaymentInfo")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -271,10 +251,6 @@ func (h *GameHandler) GetPaymentInfo(c *gin.Context) {
 
 // JoinGame получает информацию для вступления в игру
 func (h *GameHandler) JoinGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.JoinGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -393,10 +369,6 @@ func (h *GameHandler) JoinGame(c *gin.Context) {
 
 // GetActiveGames получает список активных игр
 func (h *GameHandler) GetActiveGames(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetActiveGames")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	limit := 10
 	offset := 0
 
@@ -414,7 +386,6 @@ func (h *GameHandler) GetActiveGames(c *gin.Context) {
 
 	games, err := h.gameService.GetActiveGames(c, limit, offset)
 	if err != nil {
-		otel.RecordError(ctx, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get active games"})
 		return
 	}
@@ -453,10 +424,6 @@ func (h *GameHandler) GetActiveGames(c *gin.Context) {
 
 // GetUserGames получает список игр пользователя
 func (h *GameHandler) GetUserGames(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetUserGames")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -480,7 +447,6 @@ func (h *GameHandler) GetUserGames(c *gin.Context) {
 
 	games, err := h.gameService.GetUserGames(c, userID, limit, offset)
 	if err != nil {
-		otel.RecordError(ctx, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user games"})
 		return
 	}
@@ -519,10 +485,6 @@ func (h *GameHandler) GetCreatedGames(c *gin.Context) {
 
 // DeleteGame удаляет игру
 func (h *GameHandler) DeleteGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.DeleteGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -557,10 +519,6 @@ func (h *GameHandler) DeleteGame(c *gin.Context) {
 
 // ActivateGame активирует игру
 func (h *GameHandler) ActivateGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.ActivateGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -595,10 +553,6 @@ func (h *GameHandler) ActivateGame(c *gin.Context) {
 
 // DeactivateGame деактивирует игру
 func (h *GameHandler) DeactivateGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.DeactivateGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -633,10 +587,6 @@ func (h *GameHandler) DeactivateGame(c *gin.Context) {
 
 // SearchGames осуществляет поиск игр по параметрам
 func (h *GameHandler) SearchGames(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.SearchGames")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	minBet := 0.0
 	maxBet := 1000000.0
 	difficulty := ""
@@ -701,10 +651,6 @@ func (h *GameHandler) SearchGames(c *gin.Context) {
 
 // AddToRewardPool добавляет средства в reward pool игры
 func (h *GameHandler) AddToRewardPool(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.AddToRewardPool")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})

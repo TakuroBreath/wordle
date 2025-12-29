@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"strconv"
 	"time"
 
@@ -77,4 +78,53 @@ func RecordError(errorType string) {
 	if registry != nil {
 		registry.ErrorsTotal.WithLabelValues(errorType).Inc()
 	}
+}
+
+// AddDeposit добавляет сумму пополнения в денежные метрики.
+// amount должен быть в основных единицах валюты (TON, USDT).
+func AddDeposit(amount float64, currency string, source string) {
+	if registry == nil {
+		return
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return
+	}
+	if currency == "" {
+		currency = "unknown"
+	}
+	if source == "" {
+		source = "unknown"
+	}
+	registry.MoneyDepositedTotal.WithLabelValues(currency, source).Add(amount)
+}
+
+// AddWithdraw добавляет сумму вывода (нетто) в денежные метрики.
+func AddWithdraw(amount float64, currency string) {
+	if registry == nil {
+		return
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return
+	}
+	if currency == "" {
+		currency = "unknown"
+	}
+	registry.MoneyWithdrawnTotal.WithLabelValues(currency).Add(amount)
+}
+
+// AddRevenue добавляет сумму ревеню (комиссии/fees) в денежные метрики.
+func AddRevenue(amount float64, currency string, revenueType string) {
+	if registry == nil {
+		return
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return
+	}
+	if currency == "" {
+		currency = "unknown"
+	}
+	if revenueType == "" {
+		revenueType = "unknown"
+	}
+	registry.RevenueTotal.WithLabelValues(currency, revenueType).Add(amount)
 }

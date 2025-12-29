@@ -39,6 +39,7 @@ logging:
   level: debug
   format: console
   output: stdout
+  filePath: logs/app.json
 
 blockchain:
   ton:

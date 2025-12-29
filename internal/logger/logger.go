@@ -2,10 +2,11 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -23,7 +24,9 @@ type Config struct {
 	Format       string `yaml:"format" env:"LOG_FORMAT" env-default:"json"`
 	Output       string `yaml:"output" env:"LOG_OUTPUT" env-default:"stdout"`
 	IsProduction bool   `yaml:"isProduction" env:"PRODUCTION" env-default:"false"`
-	FilePath     string `yaml:"filePath" env:"LOG_FILE_PATH" env-default:"logs/app.log"`
+	// FilePath: путь к JSON-логу, который будет считываться Promtail и отправляться в Loki.
+	// Человекочитаемые логи всегда пишутся в stdout.
+	FilePath     string `yaml:"filePath" env:"LOG_FILE_PATH" env-default:"logs/app.json"`
 	MaxSize      int    `yaml:"maxSize" env:"LOG_MAX_SIZE" env-default:"100"` // в МБ
 	MaxBackups   int    `yaml:"maxBackups" env:"LOG_MAX_BACKUPS" env-default:"30"`
 	MaxAge       int    `yaml:"maxAge" env:"LOG_MAX_AGE" env-default:"30"` // в днях
@@ -47,25 +50,29 @@ func Init(cfg Config) {
 		level = zap.FatalLevel
 	}
 
-	// Настройка вывода логов
-	var sink zapcore.WriteSyncer
-	if cfg.Output == "file" {
-		// Настройка ротации логов
-		rotator := &lumberjack.Logger{
-			Filename:   cfg.FilePath,
-			MaxSize:    cfg.MaxSize,    // мегабайты
-			MaxBackups: cfg.MaxBackups, // количество бэкапов
-			MaxAge:     cfg.MaxAge,     // дни
-			Compress:   cfg.Compress,   // сжатие
-		}
-		sink = zapcore.AddSync(rotator)
-	} else {
-		sink = zapcore.AddSync(os.Stdout)
+	// 1) Человекочитаемые логи в stdout
+	consoleEncoderCfg := zapcore.EncoderConfig{
+		TimeKey:        "ts",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.MillisDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
+	consoleCore := zapcore.NewCore(
+		zapcore.NewConsoleEncoder(consoleEncoderCfg),
+		zapcore.AddSync(os.Stdout),
+		level,
+	)
 
-	// Конфигурация энкодера
-	var encoder zapcore.Encoder
-	encoderConfig := zapcore.EncoderConfig{
+	// 2) Структурированные JSON логи в файл (для Loki через Promtail)
+	jsonEncoderCfg := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
 		NameKey:        "logger",
@@ -80,11 +87,35 @@ func Init(cfg Config) {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	// Всегда используем JSON формат для лучшей совместимости с ELK
-	encoder = zapcore.NewJSONEncoder(encoderConfig)
+	var cores []zapcore.Core
+	cores = append(cores, consoleCore)
 
-	// Создаем ядро логгера
-	core := zapcore.NewCore(encoder, sink, level)
+	jsonEnabled := cfg.FilePath != ""
+	if jsonEnabled {
+		// lumberjack не создаёт директории сам
+		if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create log directory: %v\n", err)
+			jsonEnabled = false
+		}
+	}
+
+	if jsonEnabled {
+		rotator := &lumberjack.Logger{
+			Filename:   cfg.FilePath,
+			MaxSize:    cfg.MaxSize,    // мегабайты
+			MaxBackups: cfg.MaxBackups, // количество бэкапов
+			MaxAge:     cfg.MaxAge,     // дни
+			Compress:   cfg.Compress,   // сжатие
+		}
+		jsonCore := zapcore.NewCore(
+			zapcore.NewJSONEncoder(jsonEncoderCfg),
+			zapcore.AddSync(rotator),
+			level,
+		)
+		cores = append(cores, jsonCore)
+	}
+
+	core := zapcore.NewTee(cores...)
 
 	// Дополнительные опции
 	opts := []zap.Option{
@@ -98,13 +129,20 @@ func Init(cfg Config) {
 
 	// Создаем логгер
 	Log = zap.New(core, opts...)
+
+	// Базовые поля (попадают и в console, и в JSON)
+	if serviceName := os.Getenv("SERVICE_NAME"); serviceName != "" {
+		Log = Log.With(zap.String("service", serviceName))
+	}
 	SugaredLog = Log.Sugar()
 
 	Log.Info("Logger initialized",
 		zap.String("level", cfg.Level),
 		zap.String("format", cfg.Format),
 		zap.String("output", cfg.Output),
-		zap.Bool("production", cfg.IsProduction))
+		zap.Bool("production", cfg.IsProduction),
+		zap.Bool("json_file_enabled", jsonEnabled),
+		zap.String("json_file_path", cfg.FilePath))
 }
 
 // InitDefault инициализирует логгер с настройками по умолчанию
@@ -127,35 +165,20 @@ func GetLogger(fields ...zap.Field) *zap.Logger {
 }
 
 // GetSugaredLogger returns a sugared logger with added fields
-func GetSugaredLogger(keysAndValues ...interface{}) *zap.SugaredLogger {
+func GetSugaredLogger(keysAndValues ...any) *zap.SugaredLogger {
 	if SugaredLog == nil {
 		InitDefault()
 	}
 	return SugaredLog.With(keysAndValues...)
 }
 
-// WithContext обогащает лог контекстом и информацией о трейсинге
+// WithContext обогащает лог контекстом (трейсинг удалён).
 func WithContext(ctx context.Context) *zap.Logger {
 	if Log == nil {
 		InitDefault()
 	}
-
-	fields := []zap.Field{}
-
-	// Добавляем trace_id и span_id, если они есть в контексте
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		traceID := span.SpanContext().TraceID().String()
-		spanID := span.SpanContext().SpanID().String()
-		fields = append(fields,
-			zap.String("trace_id", traceID),
-			zap.String("span_id", spanID))
-	}
-
-	// Можно добавить другие поля из контекста
-	// Например, user_id, request_id и т.д., если они есть в контексте
-
-	return Log.With(fields...)
+	_ = ctx
+	return Log
 }
 
 // LogError логирует ошибку с контекстом

@@ -569,6 +569,175 @@
                 "align": false,
                 "alignLevel": null
             }
+        },
+        {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+                "defaults": {
+                    "custom": {},
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 24
+            },
+            "id": 18,
+            "options": {
+                "displayMode": "gradient",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true
+            },
+            "pluginVersion": "7.3.7",
+            "targets": [
+                {
+                    "expr": "sum by (currency) (wordle_money_deposited_total)",
+                    "legendFormat": "{{currency}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Money Deposited (Total)",
+            "type": "bargauge"
+        },
+        {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+                "defaults": {
+                    "custom": {},
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 24
+            },
+            "id": 19,
+            "options": {
+                "displayMode": "gradient",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true
+            },
+            "pluginVersion": "7.3.7",
+            "targets": [
+                {
+                    "expr": "sum by (currency) (wordle_money_withdrawn_total)",
+                    "legendFormat": "{{currency}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Money Withdrawn (Total, Net)",
+            "type": "bargauge"
+        },
+        {
+            "datasource": "Prometheus",
+            "fieldConfig": {
+                "defaults": {
+                    "custom": {},
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 24
+            },
+            "id": 20,
+            "options": {
+                "displayMode": "gradient",
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true
+            },
+            "pluginVersion": "7.3.7",
+            "targets": [
+                {
+                    "expr": "sum by (currency, type) (wordle_revenue_total)",
+                    "legendFormat": "{{currency}} / {{type}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Revenue (Total)",
+            "type": "bargauge"
+        },
+        {
+            "datasource": "Loki",
+            "gridPos": {
+                "h": 10,
+                "w": 24,
+                "x": 0,
+                "y": 32
+            },
+            "id": 21,
+            "options": {
+                "showLabels": true,
+                "showTime": true,
+                "sortOrder": "Descending",
+                "wrapLogMessage": true
+            },
+            "pluginVersion": "7.3.7",
+            "targets": [
+                {
+                    "expr": "{job=\"wordle\"}",
+                    "refId": "A"
+                }
+            ],
+            "title": "Logs (Loki)",
+            "type": "logs"
         }
     ],
     "refresh": "5s",

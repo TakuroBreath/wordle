@@ -15,8 +15,7 @@
 	•	Аутентификация: через Telegram Mini App авторизацию
 	•	Observability:
 		• Метрики: Prometheus + Grafana
-		• Логирование: ELK Stack + Filebeat
-		• Трейсинг: Jaeger (OpenTelemetry)
+		• Логирование: Grafana Loki + Promtail + Grafana
 
 ⸻
 
@@ -204,10 +203,9 @@ docker-compose logs -f app
 - **app** - основное приложение (Go)
 - **postgres** - база данных PostgreSQL
 - **redis** - кэш Redis
-- **jaeger** - система трейсинга
 - **prometheus** - сбор метрик
 - **grafana** - визуализация метрик
-- **elasticsearch, logstash, kibana, filebeat** - система логирования ELK Stack
+- **loki, promtail** - система логирования (Loki)
 
 ### Варианты запуска
 
@@ -236,9 +234,7 @@ docker-compose logs -f app
 - **API**: http://localhost:8080
 - **Grafana**: http://localhost:3000 (admin/secret)
 - **Prometheus**: http://localhost:9091
-- **Kibana**: http://localhost:5601
-- **Jaeger UI**: http://localhost:16686
-- **Elasticsearch**: http://localhost:9200
+- **Loki**: http://localhost:3100
 
 ### Управление
 
@@ -280,13 +276,9 @@ Prometheus собирает метрики из приложения через 
    - `wordle_active_games` - текущее количество активных игр
    - `wordle_word_guessed_total` - статистика угаданных слов по количеству попыток
 
-### Логирование (ELK Stack + Filebeat)
+### Логирование (Loki + Promtail)
 
-Структурированные логи с информацией о трейсинге собираются Filebeat, обрабатываются Logstash и хранятся в Elasticsearch. Kibana используется для визуализации и анализа.
-
-### Трейсинг (Jaeger/OpenTelemetry)
-
-Трейсинг позволяет отслеживать распространение запросов через различные компоненты системы, измерять производительность и обнаруживать проблемы.
+Приложение пишет **человекочитаемые** логи в stdout и **структурированные JSON** в файл. Promtail читает JSON файл и отправляет логи в Loki. Просмотр логов — через Grafana (Explore и панель в дашборде).
 
 ## Документация
 

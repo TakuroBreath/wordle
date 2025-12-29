@@ -9,6 +9,7 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
+	"github.com/TakuroBreath/wordle/pkg/metrics"
 	"go.uber.org/zap"
 )
 
@@ -325,6 +326,8 @@ func (w *BlockchainWorker) processGameDeposit(ctx context.Context, gameShortID s
 		return fmt.Errorf("failed to update game: %w", err)
 	}
 
+	metrics.AddDeposit(tx.Amount, tx.Currency, "game_deposit")
+
 	w.logger.Info("Game deposit processed successfully",
 		zap.String("game_id", game.ID.String()),
 		zap.String("status", game.Status),
@@ -335,6 +338,8 @@ func (w *BlockchainWorker) processGameDeposit(ctx context.Context, gameShortID s
 
 // processLobbyBet обрабатывает ставку для вступления в игру
 func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID string, tx *models.BlockchainTransaction, dbTx *models.Transaction) error {
+	receivedAmount := tx.Amount
+
 	w.logger.Info("Processing lobby bet",
 		zap.String("game_short_id", gameShortID),
 		zap.Float64("amount", tx.Amount))
@@ -448,6 +453,8 @@ func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID stri
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
 
+	metrics.AddDeposit(receivedAmount, tx.Currency, "lobby_bet")
+
 	w.logger.Info("Lobby created successfully",
 		zap.String("lobby_id", lobby.ID.String()),
 		zap.Uint64("user_id", user.TelegramID),
@@ -522,6 +529,8 @@ func (w *BlockchainWorker) processUserDeposit(ctx context.Context, tx *models.Bl
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
 
+	metrics.AddDeposit(tx.Amount, tx.Currency, "user_deposit")
+
 	w.logger.Info("User deposit processed successfully",
 		zap.Uint64("user_id", user.TelegramID),
 		zap.Float64("amount", tx.Amount))
@@ -591,6 +600,14 @@ func (w *BlockchainWorker) processWithdrawal(ctx context.Context, tx *models.Tra
 
 	if err := w.transactionRepo.Update(ctx, tx); err != nil {
 		return fmt.Errorf("failed to update transaction: %w", err)
+	}
+
+	netAmount := tx.Amount - tx.Fee
+	if netAmount > 0 {
+		metrics.AddWithdraw(netAmount, tx.Currency)
+	}
+	if tx.Fee > 0 {
+		metrics.AddRevenue(tx.Fee, tx.Currency, "withdraw_fee")
 	}
 
 	// Обновляем pending_withdrawal у пользователя

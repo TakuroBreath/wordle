@@ -8,6 +8,7 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/models"
+	"github.com/TakuroBreath/wordle/pkg/metrics"
 	"github.com/google/uuid"
 )
 
@@ -479,6 +480,8 @@ func (s *TransactionServiceImpl) ConfirmDeposit(ctx context.Context, transaction
 		return fmt.Errorf("user balance updated for deposit %s, but failed to update transaction status to completed: %w", transactionID, err)
 	}
 
+	metrics.AddDeposit(tx.Amount, tx.Currency, "deposit")
+
 	return nil
 }
 
@@ -560,6 +563,8 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 		// Баланс обновлен, но статус транзакции не удалось обновить. Это серьезная проблема.
 		return fmt.Errorf("user balance updated for withdrawal %s, but failed to update transaction status to completed: %w", transactionID, err)
 	}
+
+	metrics.AddWithdraw(tx.Amount, tx.Currency)
 
 	return nil
 }
@@ -749,6 +754,8 @@ func (s *TransactionServiceImpl) ProcessBlockchainDeposit(ctx context.Context, u
 		}
 		return fmt.Errorf("failed to update %s balance: %w", currency, balanceErr)
 	}
+
+	metrics.AddDeposit(amount, currency, "blockchain_deposit")
 
 	return nil
 }

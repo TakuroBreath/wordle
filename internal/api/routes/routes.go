@@ -1,20 +1,13 @@
 package routes
 
 import (
-	"os"
-
 	"github.com/TakuroBreath/wordle/internal/api/handlers"
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
 	"github.com/gin-gonic/gin"
-	otelgin "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.uber.org/zap"
-)
-
-var (
-	serviceName = os.Getenv("SERVICE_NAME")
 )
 
 // RouterConfig конфигурация роутера
@@ -76,8 +69,6 @@ func SetupRouterWithConfig(
 	router.Use(middleware.Recovery())
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS())
-	router.Use(otelgin.Middleware(serviceName))
-	router.Use(middleware.TracingMiddleware())
 	router.Use(metrics.MiddlewareMetrics())
 
 	// Инициализация обработчиков
