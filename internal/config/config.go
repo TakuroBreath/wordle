@@ -149,7 +149,6 @@ func Load(configPath string) (*Config, error) {
 // 1. CONFIG_PATH env variable
 // 2. ./config.yaml
 // 3. ./configs/config.local.yaml
-// 4. ./configs/config.dev.yaml
 func New() (*Config, error) {
 	configPath := os.Getenv("CONFIG_PATH")
 
@@ -158,7 +157,6 @@ func New() (*Config, error) {
 		candidates := []string{
 			"config.yaml",
 			"configs/config.local.yaml",
-			"configs/config.dev.yaml",
 		}
 
 		for _, candidate := range candidates {

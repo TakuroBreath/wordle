@@ -5,13 +5,24 @@ run: dev
 
 # Dev режим (без авторизации, mock блокчейн)
 dev:
-	@ln -sf configs/config.dev.yaml config.yaml
+	@if [ ! -f configs/config.local.yaml ]; then \
+		echo "⚠️  configs/config.local.yaml не найден!"; \
+		echo "Скопируйте шаблон: cp configs/config.local.yaml.example configs/config.local.yaml"; \
+		exit 1; \
+	fi
+	@ln -sf configs/config.local.yaml config.yaml
 	@echo "Running in DEV mode..."
 	go run cmd/api/main.go
 
 # Prod режим (с авторизацией, реальный блокчейн)
 prod:
-	@ln -sf configs/config.prod.yaml config.yaml
+	@if [ ! -f configs/config.local.yaml ]; then \
+		echo "⚠️  configs/config.local.yaml не найден!"; \
+		echo "Скопируйте шаблон: cp configs/config.local.yaml.example configs/config.local.yaml"; \
+		echo "И установите environment: prod в конфиге"; \
+		exit 1; \
+	fi
+	@ln -sf configs/config.local.yaml config.yaml
 	@echo "Running in PROD mode..."
 	go run cmd/api/main.go
 
