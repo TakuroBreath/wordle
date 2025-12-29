@@ -1,5 +1,5 @@
 # Стадия сборки
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Установка зависимостей для сборки
 RUN apk add --no-cache gcc musl-dev git
@@ -20,7 +20,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/wordle ./cmd/api
 
 # Стадия миграции
-FROM golang:1.22-alpine AS migrate
+FROM golang:1.23-alpine AS migrate
 
 # Установка migrate
 RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
