@@ -20,12 +20,6 @@ postgres:
   db_name: wordle
   ssl_mode: disable
 
-redis:
-  host: redis
-  port: "6379"
-  password: ""
-  db: 0
-
 auth:
   enabled: false
   jwt_secret: docker_dev_secret_key_not_for_production

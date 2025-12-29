@@ -49,7 +49,7 @@ docker-compose -f docker-compose.dev.yml up -d
    ```
 
 2. Заполните все секреты в `config.docker.local.yaml`:
-   - Пароли для PostgreSQL и Redis
+   - Пароль для PostgreSQL
    - JWT секрет (сгенерируйте: `openssl rand -hex 32`)
    - Telegram Bot Token
    - TON API ключ и данные кошелька
@@ -60,7 +60,7 @@ docker-compose -f docker-compose.dev.yml up -d
      - ./configs/config.docker.local.yaml:/app/config.yaml:ro
    ```
 
-4. Обновите пароли в `docker-compose.yml` для PostgreSQL и Redis
+4. Обновите пароль в `docker-compose.yml` для PostgreSQL
 
 5. Запустите:
    ```bash
@@ -138,12 +138,6 @@ postgres:
   password: your_strong_password
   db_name: wordle
   ssl_mode: require
-
-redis:
-  host: localhost
-  port: "6379"
-  password: redis_password
-  db: 0
 
 auth:
   enabled: true

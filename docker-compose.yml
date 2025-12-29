@@ -1,6 +1,6 @@
 version: "3.8"
 
-# Базовый Docker Compose (backend + PostgreSQL + Redis)
+# Базовый Docker Compose (backend + PostgreSQL)
 # Использование:
 #   docker-compose up -d
 
@@ -10,8 +10,6 @@ services:
     container_name: wordle-api
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -51,25 +49,8 @@ services:
     networks:
       - wordle-network
 
-  redis:
-    image: redis:7-alpine
-    container_name: wordle-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - wordle-network
-
 volumes:
   postgres_data:
-  redis_data:
   wordle_logs:
 
 networks:

@@ -36,7 +36,6 @@ type Config struct {
 	// Компоненты
 	HTTP       HTTPConfig       `yaml:"http"`
 	Postgres   PostgresConfig   `yaml:"postgres"`
-	Redis      RedisConfig      `yaml:"redis"`
 	Auth       AuthConfig       `yaml:"auth"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
 	Logging    logger.Config    `yaml:"logging"`
@@ -59,14 +58,6 @@ type PostgresConfig struct {
 	Password string `yaml:"password"`
 	DBName   string `yaml:"db_name"`
 	SSLMode  string `yaml:"ssl_mode"`
-}
-
-// RedisConfig представляет конфигурацию Redis
-type RedisConfig struct {
-	Host     string `yaml:"host"`
-	Port     string `yaml:"port"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
 }
 
 // AuthConfig представляет конфигурацию аутентификации
@@ -196,12 +187,6 @@ func defaultConfig() *Config {
 			DBName:   "wordle",
 			SSLMode:  "disable",
 		},
-		Redis: RedisConfig{
-			Host:     "localhost",
-			Port:     "6379",
-			Password: "",
-			DB:       0,
-		},
 		Auth: AuthConfig{
 			Enabled:   false,
 			JWTSecret: "dev_secret_key_not_for_production",
@@ -311,12 +296,6 @@ func (p PostgresConfig) DSN() string {
 		" dbname=" + p.DBName +
 		" sslmode=" + p.SSLMode
 }
-
-// Addr возвращает адрес сервера Redis
-func (r RedisConfig) Addr() string {
-	return r.Host + ":" + r.Port
-}
-
 
 // String возвращает строковое представление конфигурации (для логов)
 func (c *Config) String() string {
