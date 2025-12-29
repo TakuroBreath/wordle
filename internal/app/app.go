@@ -8,8 +8,8 @@ import (
 	"github.com/TakuroBreath/wordle/internal/api/server"
 	"github.com/TakuroBreath/wordle/internal/config"
 	"github.com/TakuroBreath/wordle/internal/repository"
+	"github.com/TakuroBreath/wordle/internal/repository/memory"
 	"github.com/TakuroBreath/wordle/internal/repository/postgresql"
-	"github.com/TakuroBreath/wordle/internal/repository/redis"
 	"github.com/TakuroBreath/wordle/internal/service"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
 )
@@ -31,13 +31,8 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
-	redisDB, err := redis.NewRedisClient(cfg.Redis)
-	if err != nil {
-		return nil, err
-	}
-
 	repos := postgresql.NewRepository(postgresDB)
-	redisRepos := redis.NewRedisRepository(redisDB)
+	memoryRepos := memory.NewRepository()
 
 	// Инициализация сервисов с полной конфигурацией
 	serviceCfg := service.ServiceConfig{
@@ -47,7 +42,7 @@ func New(cfg *config.Config) (*App, error) {
 		UseMockProvider: cfg.UseMockProvider,
 		Blockchain:      cfg.Blockchain,
 	}
-	services := service.NewServiceWithConfig(repos, redisRepos, serviceCfg)
+	services := service.NewServiceWithConfig(repos, memoryRepos, serviceCfg)
 	servicesImpl := services.(*service.ServiceImpl)
 
 	// Инициализация сервера
@@ -66,7 +61,7 @@ func New(cfg *config.Config) (*App, error) {
 		server:   httpServer,
 		services: servicesImpl,
 		repos:    repos,
-		redis:    redisRepos,
+		redis:    memoryRepos,
 	}, nil
 }
 
@@ -105,7 +100,7 @@ func (a *App) Shutdown() {
 
 	if closer, ok := a.redis.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
-			log.Printf("Failed to close Redis connection: %v", err)
+			log.Printf("Failed to close memory repository: %v", err)
 		}
 	}
 }
