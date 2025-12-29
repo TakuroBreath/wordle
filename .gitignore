@@ -20,3 +20,8 @@ logs/
 .env
 .env.local
 .env.*.local
+
+# Local config with secrets (never commit!)
+configs/config.local.yaml
+configs/config.docker.local.yaml
+config.local.yaml
