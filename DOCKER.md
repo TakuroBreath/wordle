@@ -4,7 +4,7 @@
 
 ### Локальный запуск со всеми сервисами
 
-Для запуска проекта локально со всеми сервисами (backend, frontend, PostgreSQL, Redis, Prometheus, Grafana, Loki):
+Для запуска проекта локально со всеми сервисами (backend, frontend, PostgreSQL, Prometheus, Grafana, Loki):
 
 ```bash
 docker-compose -f docker-compose.full.yml up -d
@@ -25,14 +25,14 @@ docker-compose -f docker-compose.full.yml up -d
    ```
 
 2. **Заполните секреты в `configs/config.docker.local.yaml`:**
-   - Пароли для PostgreSQL и Redis
+   - Пароль для PostgreSQL
    - JWT секрет: `openssl rand -hex 32`
    - Telegram Bot Token (получите у @BotFather)
    - TON API ключ и данные кошелька
 
 3. **Обновите `docker-compose.yml`:**
    - Измените путь к конфигу на `config.docker.local.yaml`
-   - Обновите пароли для PostgreSQL и Redis
+   - Обновите пароль для PostgreSQL
 
 4. **Запустите:**
    ```bash

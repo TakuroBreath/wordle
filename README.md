@@ -8,10 +8,9 @@
 
 Технологии
 	•	Язык: Go 1.24+
-	•	Хранилище: PostgreSQL, Redis
+	•	Хранилище: PostgreSQL, In-Memory (для сессий и кэша)
 	•	Blockchain: TON (через SDK / gRPC / REST)
 	•	API: REST (JSON over HTTPS), Gin
-	•	Очередь: Redis / BullMQ (для обработки событий транзакций)
 	•	Аутентификация: через Telegram Mini App авторизацию
 	•	Observability:
 		• Метрики: Prometheus + Grafana
@@ -172,7 +171,7 @@ Admin / Service
 
 ### Локальный запуск в Docker (со всеми сервисами)
 
-Для запуска проекта локально со всеми сервисами (backend, frontend, PostgreSQL, Redis, Prometheus, Grafana, Loki):
+Для запуска проекта локально со всеми сервисами (backend, frontend, PostgreSQL, Prometheus, Grafana, Loki):
 
 1. **Клонируйте репозиторий:**
 ```bash
@@ -209,13 +208,11 @@ docker-compose -f docker-compose.full.yml logs -f app
 - **Prometheus** (метрики): http://localhost:9090
 - **Loki** (логи): http://localhost:3100
 - **PostgreSQL**: localhost:5432
-- **Redis**: localhost:6379
 
 #### Структура контейнеров
 
 - **wordle-api** - основное приложение (Go)
 - **wordle-postgres** - база данных PostgreSQL
-- **wordle-redis** - кэш Redis
 - **prometheus** - сбор метрик
 - **grafana** - визуализация метрик и логов
 - **loki** - хранилище логов
@@ -249,7 +246,6 @@ cp configs/config.docker.prod.yaml configs/config.docker.local.yaml
 
 2. **Заполните секреты в `configs/config.docker.local.yaml`:**
    - `postgres.password` - сильный пароль для PostgreSQL
-   - `redis.password` - пароль для Redis
    - `auth.jwt_secret` - JWT секрет (минимум 32 символа, сгенерируйте: `openssl rand -hex 32`)
    - `auth.bot_token` - токен Telegram бота (получите у @BotFather)
    - `blockchain.ton.api_key` - API ключ от toncenter.com
@@ -264,16 +260,13 @@ cp configs/config.docker.prod.yaml configs/config.docker.local.yaml
      - ./configs/config.docker.local.yaml:/app/config.yaml:ro
    ```
 
-4. **Настройте переменные окружения для PostgreSQL и Redis:**
+4. **Настройте переменные окружения для PostgreSQL:**
    
-   Отредактируйте `docker-compose.yml` и обновите пароли:
+   Отредактируйте `docker-compose.yml` и обновите пароль:
    ```yaml
    postgres:
      environment:
        POSTGRES_PASSWORD: YOUR_STRONG_PASSWORD
-   
-   redis:
-     command: redis-server --requirepass YOUR_REDIS_PASSWORD
    ```
 
 5. **Запустите в продакшене:**
@@ -291,7 +284,7 @@ docker-compose logs -f app
 - ⚠️ **Никогда не коммитьте** `configs/config.docker.local.yaml` в git (он уже в `.gitignore`)
 - 🔒 Используйте сильные пароли для всех сервисов
 - 🔐 Храните seed фразу кошелька в безопасном месте (используйте секреты Docker или внешний менеджер секретов)
-- 🌐 Для продакшена рекомендуется использовать внешнюю базу данных и Redis
+- 🌐 Для продакшена рекомендуется использовать внешнюю базу данных
 - 📊 Настройте регулярные бэкапы базы данных
 - 🛡️ Используйте SSL/TLS для подключения к PostgreSQL в продакшене (`ssl_mode: require`)
 

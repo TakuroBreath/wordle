@@ -12,7 +12,7 @@ internal/
 │   └── handlers_test.go      # Тесты HTTP handlers
 ├── mocks/
 │   ├── repositories.go       # Моки для репозиториев
-│   └── redis.go              # Мок для Redis
+│   └── redis.go              # Мок для in-memory хранилища (ранее Redis)
 └── service/
     ├── auth_service_test.go        # Тесты аутентификации
     ├── game_service_test.go        # Тесты игровой логики
@@ -122,7 +122,7 @@ go test -v ./internal/api/handlers/...
 Полная имплементация HistoryRepository.
 
 ### MockRedisRepository
-Полная имплементация RedisRepository.
+Полная имплементация RedisRepository (используется in-memory хранилище вместо Redis).
 
 ## Примеры использования моков
 
