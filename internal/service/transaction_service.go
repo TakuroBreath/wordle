@@ -8,6 +8,7 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/models"
+	"github.com/TakuroBreath/wordle/pkg/metrics"
 	"github.com/google/uuid"
 )
 
@@ -333,6 +334,9 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 		return nil, fmt.Errorf("failed to create withdrawal transaction: %w", err)
 	}
 
+	// Увеличиваем счётчик ожидающих выводов
+	metrics.IncrementPendingWithdrawals()
+
 	// Списание с баланса происходит ПОСЛЕ успешного подтверждения вывода
 	// Здесь мы только создаем транзакцию. Фактическое обновление баланса - отдельный шаг.
 	return tx, nil
@@ -429,6 +433,9 @@ func (s *TransactionServiceImpl) ProcessReward(ctx context.Context, userID uint6
 		return fmt.Errorf("reward transaction %s created, but failed to update user %s balance: %w", tx.ID.String(), currency, errUpdateBalance)
 	}
 
+	// Записываем выплату в метрики
+	metrics.RecordReward(currency, amount)
+
 	return nil
 }
 
@@ -478,6 +485,9 @@ func (s *TransactionServiceImpl) ConfirmDeposit(ctx context.Context, transaction
 		// Требуется логика для обработки таких несоответствий, возможно, фоновый процесс.
 		return fmt.Errorf("user balance updated for deposit %s, but failed to update transaction status to completed: %w", transactionID, err)
 	}
+
+	// Записываем успешный депозит в метрики
+	metrics.RecordDeposit(tx.Currency, tx.Amount)
 
 	return nil
 }
@@ -561,6 +571,10 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 		return fmt.Errorf("user balance updated for withdrawal %s, but failed to update transaction status to completed: %w", transactionID, err)
 	}
 
+	// Записываем успешный вывод в метрики
+	metrics.RecordWithdrawal(tx.Currency, tx.Amount)
+	metrics.DecrementPendingWithdrawals()
+
 	return nil
 }
 
@@ -591,6 +605,11 @@ func (s *TransactionServiceImpl) FailTransaction(ctx context.Context, transactio
 
 	if err := s.transactionRepo.Update(ctx, tx); err != nil {
 		return fmt.Errorf("failed to update transaction %s status to failed: %w", transactionID, err)
+	}
+
+	// Если это был вывод, уменьшаем счётчик ожидающих выводов
+	if tx.Type == models.TransactionTypeWithdraw {
+		metrics.DecrementPendingWithdrawals()
 	}
 
 	return nil
@@ -749,6 +768,9 @@ func (s *TransactionServiceImpl) ProcessBlockchainDeposit(ctx context.Context, u
 		}
 		return fmt.Errorf("failed to update %s balance: %w", currency, balanceErr)
 	}
+
+	// Записываем успешный депозит в метрики
+	metrics.RecordDeposit(currency, amount)
 
 	return nil
 }

@@ -15,8 +15,7 @@
 	•	Аутентификация: через Telegram Mini App авторизацию
 	•	Observability:
 		• Метрики: Prometheus + Grafana
-		• Логирование: ELK Stack + Filebeat
-		• Трейсинг: Jaeger (OpenTelemetry)
+		• Логирование: Loki + Promtail + Grafana
 
 ⸻
 
@@ -201,13 +200,13 @@ docker-compose logs -f app
 
 ### Структура контейнеров
 
-- **app** - основное приложение (Go)
+- **wordle-api** - основное приложение (Go)
 - **postgres** - база данных PostgreSQL
 - **redis** - кэш Redis
-- **jaeger** - система трейсинга
 - **prometheus** - сбор метрик
-- **grafana** - визуализация метрик
-- **elasticsearch, logstash, kibana, filebeat** - система логирования ELK Stack
+- **grafana** - визуализация метрик и логов
+- **loki** - хранилище логов
+- **promtail** - сборщик логов
 
 ### Варианты запуска
 
@@ -235,10 +234,8 @@ docker-compose logs -f app
 
 - **API**: http://localhost:8080
 - **Grafana**: http://localhost:3000 (admin/secret)
-- **Prometheus**: http://localhost:9091
-- **Kibana**: http://localhost:5601
-- **Jaeger UI**: http://localhost:16686
-- **Elasticsearch**: http://localhost:9200
+- **Prometheus**: http://localhost:9090
+- **Loki**: http://localhost:3100
 
 ### Управление
 
@@ -264,7 +261,7 @@ docker-compose exec app migrate -path=/app/migrations -database postgres://postg
 
 ### Метрики (Prometheus + Grafana)
 
-Prometheus собирает метрики из приложения через HTTP-эндпоинт `/metrics`. Grafana используется для визуализации этих метрик.
+Prometheus собирает метрики из приложения через HTTP-эндпоинт `/metrics`. Grafana используется для визуализации.
 
 #### Собираемые метрики
 
@@ -273,24 +270,31 @@ Prometheus собирает метрики из приложения через 
    - `http_requests_total` - количество запросов
    - `errors_total` - количество ошибок
 
-2. **Бизнес-метрики**:
+2. **Игровые метрики**:
    - `wordle_game_start_total` - количество начатых игр
    - `wordle_game_complete_total` - количество завершенных игр
    - `wordle_game_abandoned_total` - количество брошенных игр
    - `wordle_active_games` - текущее количество активных игр
    - `wordle_word_guessed_total` - статистика угаданных слов по количеству попыток
 
-### Логирование (ELK Stack + Filebeat)
+3. **Финансовые метрики (Business)**:
+   - `wordle_deposits_total_amount` - общая сумма депозитов
+   - `wordle_withdrawals_total_amount` - общая сумма выводов
+   - `wordle_commissions_total_amount` - комиссии (revenue проекта)
+   - `wordle_bets_total_amount` - общая сумма ставок
+   - `wordle_rewards_total_amount` - общая сумма выплат
+   - `wordle_pending_withdrawals` - ожидающие обработки выводы
 
-Структурированные логи с информацией о трейсинге собираются Filebeat, обрабатываются Logstash и хранятся в Elasticsearch. Kibana используется для визуализации и анализа.
+### Логирование (Loki + Promtail)
 
-### Трейсинг (Jaeger/OpenTelemetry)
+Loki - лёгкая система агрегации логов. Приложение использует zap логгер с двойным выводом:
+- **Console (stdout)** - человекочитаемый формат для `docker logs`
+- **JSON (файл)** - структурированные логи для Loki
 
-Трейсинг позволяет отслеживать распространение запросов через различные компоненты системы, измерять производительность и обнаруживать проблемы.
+Просмотр логов доступен через Grafana Log Explorer.
 
 ## Документация
 
-- [Система мониторинга](./monitoring-README.md)
-- [Система логирования](./logging-README.md)
 - [Полная система наблюдаемости](./observability-README.md)
+- [Система мониторинга](./monitoring-README.md)
 

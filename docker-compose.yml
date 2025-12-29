@@ -5,26 +5,29 @@ version: "3.8"
 #   1. Скопируйте конфиг: cp configs/config.docker.prod.yaml configs/config.docker.local.yaml
 #   2. Заполните секреты в config.docker.local.yaml
 #   3. Запустите: docker-compose up -d
+#
+# Для мониторинга (Prometheus, Grafana, Loki):
+#   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
 services:
   app:
     build: .
-    container_name: wordle-app
+    container_name: wordle-api
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     ports:
       - "8080:8080"
-      - "9090:9090"
+      - "9091:9090"  # Prometheus metrics
     environment:
       CONFIG_PATH: /app/config.yaml
     volumes:
       # Монтируем конфиг файл (используйте config.docker.local.yaml для prod)
       - ./configs/config.docker.yaml:/app/config.yaml:ro
+      # Том для JSON логов (читается Promtail для отправки в Loki)
+      - wordle_logs:/var/log/wordle
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -32,18 +35,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    networks:
-      - wordle-network
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    ports:
-      - "16686:16686" # UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
     networks:
       - wordle-network
 
@@ -87,6 +78,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  wordle_logs:
 
 networks:
   wordle-network:

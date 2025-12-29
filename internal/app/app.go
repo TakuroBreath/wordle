@@ -12,7 +12,6 @@ import (
 	"github.com/TakuroBreath/wordle/internal/repository/redis"
 	"github.com/TakuroBreath/wordle/internal/service"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
-	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 )
 
 // App представляет структуру приложения
@@ -77,10 +76,6 @@ func (a *App) Run() error {
 	log.Printf("Starting application with config: %s", a.cfg.String())
 	log.Printf("Environment: %s, Network: %s, Auth enabled: %v, Mock provider: %v",
 		a.cfg.Environment, a.cfg.Network, a.cfg.IsAuthEnabled(), a.cfg.UseMockProvider)
-
-	// Инициализация OpenTelemetry
-	cleanup := otel.InitTracer()
-	defer cleanup(context.Background())
 
 	// Инициализация Prometheus метрик
 	metrics.InitMetrics(a.cfg.Metrics.Enabled, a.cfg.Metrics.Port)

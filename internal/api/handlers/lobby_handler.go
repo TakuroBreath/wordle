@@ -6,10 +6,8 @@ import (
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/models"
-	otel "github.com/TakuroBreath/wordle/pkg/tracing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // LobbyHandler представляет обработчики для лобби
@@ -34,17 +32,11 @@ func NewLobbyHandler(
 
 // JoinGame присоединяет пользователя к игре (оплата с баланса)
 func (h *LobbyHandler) JoinGame(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.JoinGame")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
 		return
 	}
-
-	span.SetAttributes(attribute.Int64("user_id", int64(userID)))
 
 	var input struct {
 		GameID    string  `json:"game_id" binding:"required"` // UUID или short_id
@@ -71,8 +63,6 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "game not found"})
 		return
 	}
-
-	span.SetAttributes(attribute.String("game_id", game.ID.String()))
 
 	if game.Status != models.GameStatusActive {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "game is not active"})
@@ -136,10 +126,6 @@ func (h *LobbyHandler) JoinGame(c *gin.Context) {
 
 // GetLobby получает информацию о лобби
 func (h *LobbyHandler) GetLobby(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.GetLobby")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -212,10 +198,6 @@ func (h *LobbyHandler) GetActiveLobby(c *gin.Context) {
 
 // MakeAttempt отправляет попытку угадать слово
 func (h *LobbyHandler) MakeAttempt(c *gin.Context) {
-	ctx, span := otel.StartSpan(c.Request.Context(), "handler.MakeAttempt")
-	defer span.End()
-	c.Request = c.Request.WithContext(ctx)
-
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -237,11 +219,6 @@ func (h *LobbyHandler) MakeAttempt(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	span.SetAttributes(
-		attribute.String("lobby_id", id.String()),
-		attribute.String("word", input.Word),
-	)
 
 	// Получаем лобби
 	lobby, err := h.lobbyService.GetLobby(c, id)
