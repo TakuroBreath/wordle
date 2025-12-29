@@ -4,11 +4,9 @@
 
 ```
 configs/
-├── config.dev.yaml           # Dev - локальная разработка без Docker
-├── config.prod.yaml          # Prod - шаблон с плейсхолдерами
-├── config.local.yaml.example # Шаблон для создания config.local.yaml
-├── config.docker.yaml        # Docker dev - для docker-compose
-├── config.docker.prod.yaml   # Docker prod - шаблон с плейсхолдерами
+├── config.local.yaml.example # Шаблон для локальной разработки (без Docker)
+├── config.docker.yaml        # Docker dev - для docker-compose (локальная разработка)
+├── config.docker.prod.yaml   # Docker prod - шаблон для продакшена
 └── README.md
 ```
 
@@ -16,45 +14,55 @@ configs/
 
 1. `CONFIG_PATH` env variable (используется в Docker)
 2. `./config.yaml` (symlink в корне проекта)
-3. `./configs/config.local.yaml` (ваши секреты)
-4. `./configs/config.dev.yaml` (дефолт)
+3. `./configs/config.local.yaml` (ваши секреты для локальной разработки)
 
 ## Быстрый старт
 
 ### Локальная разработка (без Docker)
 
-```bash
-# Используется config.dev.yaml автоматически
-make run
+1. Скопируйте шаблон:
+   ```bash
+   cp configs/config.local.yaml.example configs/config.local.yaml
+   ```
 
-# Или с symlink на конкретный конфиг
-make dev   # symlink на config.dev.yaml
-make prod  # symlink на config.prod.yaml
-```
+2. Заполните необходимые поля в `config.local.yaml` (для dev режима большинство полей можно оставить по умолчанию)
+
+3. Запустите:
+   ```bash
+   make dev
+   # или
+   go run cmd/api/main.go
+   ```
 
 ### Docker разработка
 
 ```bash
-# Использует configs/config.docker.yaml
+# Использует configs/config.docker.yaml автоматически
 docker-compose -f docker-compose.dev.yml up -d
 ```
 
-### Production
+### Production в Docker
 
 1. Скопируйте шаблон:
    ```bash
    cp configs/config.docker.prod.yaml configs/config.docker.local.yaml
    ```
 
-2. Заполните секреты в `config.docker.local.yaml`
+2. Заполните все секреты в `config.docker.local.yaml`:
+   - Пароли для PostgreSQL и Redis
+   - JWT секрет (сгенерируйте: `openssl rand -hex 32`)
+   - Telegram Bot Token
+   - TON API ключ и данные кошелька
 
-3. Обновите docker-compose.yml:
+3. Обновите `docker-compose.yml`:
    ```yaml
    volumes:
      - ./configs/config.docker.local.yaml:/app/config.yaml:ro
    ```
 
-4. Запустите:
+4. Обновите пароли в `docker-compose.yml` для PostgreSQL и Redis
+
+5. Запустите:
    ```bash
    docker-compose up -d
    ```
@@ -80,16 +88,16 @@ docker-compose -f docker-compose.dev.yml up -d
 ## Режимы
 
 ### Dev (`environment: dev`)
-- Авторизация отключена автоматически
-- Mock blockchain провайдер
+- Авторизация отключена (`auth.enabled: false`)
+- Mock blockchain провайдер (`use_mock_provider: true`)
 - Debug логи в консоль
-- Метрики опционально
+- Метрики опционально (`metrics.enabled: false`)
 
 ### Prod (`environment: prod`)
-- Авторизация включена автоматически
-- Реальный блокчейн (TON/EVM)
-- JSON логи
-- Метрики включены
+- Авторизация включена (`auth.enabled: true`)
+- Реальный блокчейн (`use_mock_provider: false`)
+- JSON логи в файл и консоль
+- Метрики включены (`metrics.enabled: true`)
 
 ## Основные параметры
 
@@ -98,9 +106,10 @@ docker-compose -f docker-compose.dev.yml up -d
 | `environment` | dev | prod |
 | `network` | ton | ton |
 | `use_mock_provider` | true | false |
-| Авторизация | ❌ | ✅ |
+| `auth.enabled` | false | true |
 | `logging.level` | debug | info |
-| `logging.format` | console | json |
+| `logging.isProduction` | false | true |
+| `metrics.enabled` | false | true |
 
 ## Сеть
 

@@ -9,11 +9,10 @@
 # 1. CONFIG_PATH env variable
 # 2. ./config.yaml
 # 3. ./configs/config.local.yaml  <-- этот файл
-# 4. ./configs/config.dev.yaml
 
-environment: prod  # или dev для разработки
+environment: dev  # dev для разработки, prod для продакшена
 network: ton
-use_mock_provider: false
+use_mock_provider: true  # true для разработки (mock), false для продакшена
 
 http:
   port: "8080"
@@ -45,15 +44,14 @@ redis:
 # Аутентификация
 # ============================================
 auth:
-  enabled: true
-  
+  enabled: false  # false для dev (без авторизации), true для prod
   # JWT секрет - минимум 32 символа, случайная строка
   # Генерация: openssl rand -hex 32
-  jwt_secret: YOUR_JWT_SECRET_MIN_32_CHARACTERS_HERE
+  jwt_secret: dev_secret_key_12345_not_for_production
   
   # Telegram Bot Token
   # Получите у @BotFather
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  bot_token: ""  # Не требуется в dev режиме
   
   token_ttl: 24h
 
@@ -61,16 +59,22 @@ auth:
 # Метрики Prometheus
 # ============================================
 metrics:
-  enabled: true
+  enabled: false  # false для dev, true для продакшена
   port: "9090"
 
 # ============================================
 # Логирование
 # ============================================
 logging:
-  level: info    # debug, info, warn, error
-  format: json   # json или console
-  output: stdout
+  level: debug    # debug для разработки, info для продакшена
+  isProduction: false
+  lokiFilePath: logs/app.json
+  maxSize: 100
+  maxBackups: 30
+  maxAge: 7
+  compress: true
+  disableConsole: false
+  disableLokiFile: true  # В dev режиме файл для Loki не нужен
 
 # ============================================
 # Блокчейн - TON
