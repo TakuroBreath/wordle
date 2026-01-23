@@ -477,69 +477,17 @@ func (s *GameServiceImpl) GetPaymentInfo(ctx context.Context, gameID uuid.UUID) 
 	}, nil
 }
 
-// CheckWord проверяет слово и возвращает результат в виде строки
-func (s *GameServiceImpl) CheckWord(word, target string) string {
-	wordRunes := []rune(strings.ToLower(word))
-	targetRunes := []rune(strings.ToLower(target))
-
-	if len(wordRunes) != len(targetRunes) {
-		return ""
-	}
-
-	result := make([]int, len(wordRunes))
-	targetUsed := make([]bool, len(targetRunes))
-
-	// Сначала точные совпадения
-	for i := 0; i < len(wordRunes); i++ {
-		if wordRunes[i] == targetRunes[i] {
-			result[i] = 2
-			targetUsed[i] = true
-		}
-	}
-
-	// Затем буквы на неправильных позициях
-	for i := 0; i < len(wordRunes); i++ {
-		if result[i] == 2 {
-			continue
-		}
-		for j := 0; j < len(targetRunes); j++ {
-			if !targetUsed[j] && wordRunes[i] == targetRunes[j] {
-				result[i] = 1
-				targetUsed[j] = true
-				break
-			}
-		}
-	}
-
-	// Преобразуем в строку
-	var sb strings.Builder
-	for _, r := range result {
-		sb.WriteString(fmt.Sprintf("%d", r))
-	}
-	return sb.String()
+// CheckWord проверяет слово и возвращает результат []int
+func (s *GameServiceImpl) CheckWord(word, target string) []int {
+	return models.CheckWord(word, target)
 }
 
 // IsWordCorrect проверяет, угадано ли слово
 func (s *GameServiceImpl) IsWordCorrect(word, target string) bool {
-	return strings.ToLower(word) == strings.ToLower(target)
+	return models.IsWordCorrect(word, target)
 }
 
 // CalculateReward вычисляет награду с учётом комиссии
 func (s *GameServiceImpl) CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int) float64 {
-	if triesUsed <= 0 || maxTries <= 0 || triesUsed > maxTries {
-		return 0
-	}
-
-	// Базовая награда
-	baseReward := bet * multiplier
-
-	// Бонус за быстрое угадывание (чем меньше попыток - тем больше бонус)
-	triesBonus := 1.0 + (float64(maxTries-triesUsed)/float64(maxTries))*0.5
-
-	grossReward := baseReward * triesBonus
-
-	// Вычитаем комиссию 5%
-	netReward := grossReward * (1 - s.commissionRate)
-
-	return netReward
+	return models.CalculateReward(bet, multiplier, triesUsed, maxTries, s.commissionRate)
 }

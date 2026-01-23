@@ -37,7 +37,7 @@ type GameService interface {
 	GetPaymentInfo(ctx context.Context, gameID uuid.UUID) (*PaymentInfo, error)
 	
 	// Проверка слова (утилиты)
-	CheckWord(word, target string) string
+	CheckWord(word, target string) []int
 	IsWordCorrect(word, target string) bool
 	CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int) float64
 }
