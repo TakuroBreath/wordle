@@ -325,6 +325,21 @@ func (s *GameServiceImpl) GetActiveGames(ctx context.Context, limit, offset int)
 	return games, nil
 }
 
+// GetActiveGamesForUser получает список активных игр для конкретного пользователя (исключая сыгранные и свои)
+func (s *GameServiceImpl) GetActiveGamesForUser(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	log := s.logger.With(zap.String("method", "GetActiveGamesForUser"), zap.Uint64("user_id", userID))
+	log.Debug("Getting active games for user")
+
+	games, err := s.gameRepo.GetActiveExcludingPlayed(ctx, userID, limit, offset)
+	if err != nil {
+		log.Error("Failed to get active games for user", zap.Error(err))
+		return nil, err
+	}
+
+	log.Debug("Active games for user retrieved", zap.Int("count", len(games)))
+	return games, nil
+}
+
 // GetPendingGames получает список игр, ожидающих депозита
 func (s *GameServiceImpl) GetPendingGames(ctx context.Context, limit, offset int) ([]*models.Game, error) {
 	return s.gameRepo.GetPending(ctx, limit, offset)

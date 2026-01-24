@@ -384,22 +384,27 @@ func (h *GameHandler) GetActiveGames(c *gin.Context) {
 		}
 	}
 
-	games, err := h.gameService.GetActiveGames(c, limit, offset)
+	// Получаем ID текущего пользователя для фильтрации
+	userID, userIDExists := middleware.GetCurrentUserID(c)
+
+	var games []*models.Game
+	var err error
+
+	if userIDExists {
+		// Для авторизованных пользователей исключаем сыгранные и свои игры
+		games, err = h.gameService.GetActiveGamesForUser(c, userID, limit, offset)
+	} else {
+		// Для неавторизованных просто возвращаем активные игры
+		games, err = h.gameService.GetActiveGames(c, limit, offset)
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get active games"})
 		return
 	}
 
-	// Получаем ID текущего пользователя для фильтрации своих игр
-	userID, _ := middleware.GetCurrentUserID(c)
-
 	result := make([]gin.H, 0, len(games))
 	for _, game := range games {
-		// Не показываем свои игры в списке доступных
-		if game.CreatorID == userID {
-			continue
-		}
-
 		result = append(result, gin.H{
 			"id":                game.ID,
 			"short_id":          game.ShortID,

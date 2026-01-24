@@ -28,6 +28,7 @@ type GameRepository interface {
 	Update(ctx context.Context, game *Game) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
+	GetActiveExcludingPlayed(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Game, error)
 	GetPending(ctx context.Context, limit, offset int) ([]*Game, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
