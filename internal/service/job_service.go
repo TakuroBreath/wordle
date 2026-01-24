@@ -36,7 +36,7 @@ func NewJobService(
 
 	var client *tonapi.Client
 	var err error
-	
+
 	// Создаём клиент только если токен указан
 	if token != "" {
 		client, err = tonapi.NewClient(tonapi.TonApiURL, tonapi.WithToken(token))
@@ -94,11 +94,13 @@ func (s *JobServiceImpl) ProcessExpiredLobbies(ctx context.Context) error {
 
 // ProcessPendingTransactions обрабатывает отложенные транзакции
 func (s *JobServiceImpl) ProcessPendingTransactions(ctx context.Context) error {
-	// Обрабатываем отложенные транзакции через blockchain provider
-	// Примечание: мониторинг выводов осуществляется через BlockchainWorker
-	// Здесь можно добавить дополнительную логику обработки транзакций при необходимости
+	// Обрабатываем отложенные выводы через TransactionService.
+	// Для TON внутри будет no-op (обработка через BlockchainWorker).
+	if s.transactionService == nil {
+		return nil
+	}
 
-	return nil
+	return s.transactionService.MonitorPendingWithdrawals(ctx)
 }
 
 // MonitorWalletTransactions отслеживает транзакции кошелька и активирует неактивные игры
@@ -126,17 +128,17 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 		if s.transactionService.IsTransactionProcessed(ctx, transaction.Hash) {
 			continue
 		}
-		
+
 		if transaction.InMsg.Value.DecodedBody.String() != "" {
 			comment := transaction.InMsg.Value.DecodedBody.String()
-			
+
 			// Пробуем распарсить comment как UUID игры
 			gameID, parseErr := uuid.Parse(comment)
 			if parseErr != nil {
 				// Комментарий не является UUID игры, пропускаем
 				continue
 			}
-			
+
 			game, err := s.gameService.GetGame(ctx, gameID)
 			if err != nil {
 				fmt.Printf("WARNING: Failed to get game %s: %v\n", gameID, err)
@@ -150,7 +152,7 @@ func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
 					continue
 				}
 			}
-			
+
 			amount := min(float64(transaction.InMsg.Value.Value)/1000000000, game.MaxBet*game.RewardMultiplier)
 
 			err = s.gameService.AddToRewardPool(ctx, game.ID, amount)
