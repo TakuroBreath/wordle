@@ -399,6 +399,10 @@ func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID stri
 			if err := w.userRepo.UpdateTonBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 				return fmt.Errorf("failed to credit user balance: %w", err)
 			}
+		} else if game.Currency == models.CurrencyUSDT {
+			if err := w.userRepo.UpdateUsdtBalance(ctx, user.TelegramID, tx.Amount); err != nil {
+				return fmt.Errorf("failed to credit user balance: %w", err)
+			}
 		}
 		return nil
 	}
