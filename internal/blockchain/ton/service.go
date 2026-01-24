@@ -545,12 +545,22 @@ func (s *Service) SendUSDT(ctx context.Context, toAddress string, amount float64
 }
 
 // GeneratePaymentDeepLink генерирует deep link для оплаты через TON кошелёк
-func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comment string) string {
-	// Формат: ton://transfer/<address>?amount=<nanotons>&text=<comment>
-	amountNano := int64(amount * 1e9)
-
+func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comment string, currency string) string {
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%d", amountNano))
+
+	if currency == models.CurrencyUSDT {
+		// Для USDT (Jetton)
+		amountUnits := int64(amount * 1e6)
+		params.Set("amount", fmt.Sprintf("%d", amountUnits))
+		if s.config.USDTMasterAddress != "" {
+			params.Set("jetton", s.config.USDTMasterAddress)
+		}
+	} else {
+		// Для TON (нативный)
+		amountNano := int64(amount * 1e9)
+		params.Set("amount", fmt.Sprintf("%d", amountNano))
+	}
+
 	if comment != "" {
 		params.Set("text", comment)
 	}
@@ -559,11 +569,20 @@ func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comm
 }
 
 // GenerateTonkeeperDeepLink генерирует deep link для Tonkeeper
-func (s *Service) GenerateTonkeeperDeepLink(toAddress string, amount float64, comment string) string {
-	amountNano := int64(amount * 1e9)
-
+func (s *Service) GenerateTonkeeperDeepLink(toAddress string, amount float64, comment string, currency string) string {
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%d", amountNano))
+
+	if currency == models.CurrencyUSDT {
+		amountUnits := int64(amount * 1e6)
+		params.Set("amount", fmt.Sprintf("%d", amountUnits))
+		if s.config.USDTMasterAddress != "" {
+			params.Set("jetton", s.config.USDTMasterAddress)
+		}
+	} else {
+		amountNano := int64(amount * 1e9)
+		params.Set("amount", fmt.Sprintf("%d", amountNano))
+	}
+
 	if comment != "" {
 		params.Set("text", comment)
 	}

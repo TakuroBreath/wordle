@@ -59,6 +59,7 @@ type UserRepository interface {
 	ValidateBalance(ctx context.Context, userID uint64, requiredAmount float64) (bool, error)
 	IncrementWins(ctx context.Context, telegramID uint64) error
 	IncrementLosses(ctx context.Context, telegramID uint64) error
+	UpdateTotalDeposited(ctx context.Context, telegramID uint64, amount float64) error
 }
 
 // LobbyRepository определяет методы для работы с лобби

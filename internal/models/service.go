@@ -161,7 +161,7 @@ type TONService interface {
 	SendUSDT(ctx context.Context, toAddress string, amount float64, comment string) (string, error)
 	
 	// Генерация deep link
-	GeneratePaymentDeepLink(address string, amount float64, comment string) string
+	GeneratePaymentDeepLink(address string, amount float64, comment string, currency string) string
 }
 
 // BlockchainWorkerService определяет методы для фоновой обработки блокчейн транзакций

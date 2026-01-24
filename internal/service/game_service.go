@@ -479,7 +479,7 @@ func (s *GameServiceImpl) GetPaymentInfo(ctx context.Context, gameID uuid.UUID) 
 	comment := fmt.Sprintf("GD_%s_%d", game.ShortID, time.Now().Unix())
 
 	masterWallet := s.tonService.GetMasterWalletAddress()
-	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, game.DepositAmount, comment)
+	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, game.DepositAmount, comment, game.Currency)
 
 	return &models.PaymentInfo{
 		Address:  masterWallet,

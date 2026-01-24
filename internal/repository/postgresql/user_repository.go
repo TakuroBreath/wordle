@@ -504,6 +504,16 @@ func (r *UserRepository) UpdateWallet(ctx context.Context, telegramID uint64, wa
 	return nil
 }
 
+// UpdateTotalDeposited обновляет общую сумму депозитов пользователя
+func (r *UserRepository) UpdateTotalDeposited(ctx context.Context, telegramID uint64, amount float64) error {
+	query := `UPDATE users SET total_deposited = COALESCE(total_deposited, 0) + $1, updated_at = $2 WHERE telegram_id = $3`
+	_, err := r.db.ExecContext(ctx, query, amount, time.Now(), telegramID)
+	if err != nil {
+		return fmt.Errorf("failed to update total deposited: %w", err)
+	}
+	return nil
+}
+
 // UpdatePendingWithdrawal обновляет сумму в процессе вывода
 func (r *UserRepository) UpdatePendingWithdrawal(ctx context.Context, telegramID uint64, amount float64) error {
 	query := `UPDATE users SET pending_withdrawal = COALESCE(pending_withdrawal, 0) + $1, updated_at = $2 WHERE telegram_id = $3`
