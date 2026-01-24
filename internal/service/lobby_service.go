@@ -214,7 +214,7 @@ func (s *LobbyServiceImpl) GetJoinPaymentInfo(ctx context.Context, gameShortID s
 	comment := fmt.Sprintf("LB_%s_%d", gameShortID, time.Now().Unix())
 
 	masterWallet := s.tonService.GetMasterWalletAddress()
-	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, betAmount, comment)
+	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, betAmount, comment, game.Currency)
 
 	log.Info("Generated payment info",
 		zap.String("game_short_id", gameShortID),

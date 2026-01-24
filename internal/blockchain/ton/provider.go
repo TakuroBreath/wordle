@@ -142,12 +142,17 @@ func (p *TonProvider) VerifyTransaction(ctx context.Context, txHash string) (*bl
 	fmt.Sscanf(tx.Fee, "%f", &fee)
 	fee = fee / 1e9
 
+	currency := "TON"
+	// В TON v2 API сложно определить Jetton без парсинга body,
+	// но мы можем проверить, не совпадает ли Destination с известным Jetton кошельком (если бы мы его знали тут)
+	// Пока оставим TON, но в TransactionInfo добавим возможность определения валюты.
+
 	return &blockchain.TransactionInfo{
 		Hash:      txHash,
 		From:      tx.InMsg.Source,
 		To:        tx.InMsg.Destination,
 		Amount:    amount,
-		Currency:  "TON",
+		Currency:  currency,
 		Status:    blockchain.TxStatusConfirmed,
 		Timestamp: tx.Utime,
 		Fee:       fee,

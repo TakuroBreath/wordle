@@ -15,6 +15,7 @@ import (
 	"github.com/xssnick/tonutils-go/liteclient"
 	"github.com/xssnick/tonutils-go/tlb"
 	"github.com/xssnick/tonutils-go/ton"
+	"github.com/xssnick/tonutils-go/ton/jetton"
 	"github.com/xssnick/tonutils-go/ton/wallet"
 	"github.com/xssnick/tonutils-go/tvm/cell"
 	"go.uber.org/zap"
@@ -43,13 +44,14 @@ type ServiceConfig struct {
 
 // Service реализация TON сервиса
 type Service struct {
-	config       ServiceConfig
-	client       ton.APIClientWrapped
-	masterWallet *wallet.Wallet
-	masterAddr   *address.Address
-	usdtMaster   *address.Address
-	mu           sync.RWMutex
-	logger       *zap.Logger
+	config         ServiceConfig
+	client         ton.APIClientWrapped
+	masterWallet   *wallet.Wallet
+	masterAddr     *address.Address
+	usdtMaster     *address.Address
+	masterUSDTAddr *address.Address // Кэшированный адрес USDT кошелька мастера
+	mu             sync.RWMutex
+	logger         *zap.Logger
 }
 
 // NewService создаёт новый TON сервис
@@ -129,6 +131,19 @@ func (s *Service) Connect(ctx context.Context) error {
 
 		s.logger.Info("Master wallet initialized",
 			zap.String("address", s.masterAddr.String()))
+
+		// Инициализируем USDT кошелек мастера если задан USDT мастер
+		if s.usdtMaster != nil {
+			jettonMaster := jetton.NewJettonMasterClient(client, s.usdtMaster)
+			usdtWallet, err := jettonMaster.GetJettonWallet(ctx, s.masterAddr)
+			if err != nil {
+				s.logger.Warn("Failed to get master USDT wallet address", zap.Error(err))
+			} else {
+				s.masterUSDTAddr = usdtWallet.Address()
+				s.logger.Info("Master USDT wallet initialized",
+					zap.String("address", s.masterUSDTAddr.String()))
+			}
+		}
 	}
 
 	s.logger.Info("Connected to TON network successfully")
@@ -258,6 +273,9 @@ func (s *Service) GetNewTransactions(ctx context.Context, afterLt int64) ([]*mod
 
 // convertTransaction конвертирует транзакцию TON в наш формат
 func (s *Service) convertTransaction(tx *tlb.Transaction, ourAddr *address.Address) *models.BlockchainTransaction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if tx == nil {
 		return nil
 	}
@@ -280,8 +298,21 @@ func (s *Service) convertTransaction(tx *tlb.Transaction, ourAddr *address.Addre
 			result.Amount = float64(inMsg.Amount.Nano().Int64()) / 1e9
 			result.IsIncoming = true
 
-			// Извлекаем комментарий
+			// Проверяем, не является ли это уведомлением о Jetton трансфере (например, USDT)
 			if inMsg.Body != nil {
+				// Если это USDT (пришло с нашего USDT кошелька)
+				if s.masterUSDTAddr != nil && inMsg.SrcAddr.Equals(s.masterUSDTAddr) {
+					jettonAmount, sender, comment, ok := s.parseJettonTransferNotification(inMsg.Body)
+					if ok {
+						result.Currency = models.CurrencyUSDT
+						result.Amount = jettonAmount
+						result.FromAddress = sender
+						result.Comment = comment
+						return result
+					}
+				}
+
+				// Обычный комментарий для TON
 				comment := s.extractComment(inMsg.Body)
 				result.Comment = comment
 			}
@@ -311,6 +342,59 @@ func (s *Service) convertTransaction(tx *tlb.Transaction, ourAddr *address.Addre
 	}
 
 	return result
+}
+
+// parseJettonTransferNotification парсит уведомление о переводе жетонов
+func (s *Service) parseJettonTransferNotification(body *cell.Cell) (amount float64, sender string, comment string, ok bool) {
+	if body == nil {
+		return 0, "", "", false
+	}
+
+	slice := body.BeginParse()
+	op, err := slice.LoadUInt(32)
+	if err != nil || op != 0x7362d096 { // transfer_notification
+		return 0, "", "", false
+	}
+
+	_, _ = slice.LoadUInt(64) // query_id
+	coins, err := slice.LoadCoins()
+	if err != nil {
+		return 0, "", "", false
+	}
+
+	// USDT имеет 6 знаков после запятой
+	amount = float64(coins) / 1e6
+
+	senderAddr, err := slice.LoadAddr()
+	if err != nil {
+		return 0, "", "", false
+	}
+	sender = senderAddr.String()
+
+	// Извлекаем forward_payload (комментарий)
+	if slice.BitsLeft() > 0 {
+		// forward_payload может быть либо в текущем слайсе, либо в рефе
+		isRef, err := slice.LoadBoolBit()
+		if err == nil {
+			var forward *cell.Slice
+			if isRef {
+				if slice.RefsNum() > 0 {
+					forward, _ = slice.LoadRef()
+				}
+			} else {
+				forward = slice
+			}
+
+			if forward != nil && forward.BitsLeft() >= 32 {
+				op, err := forward.LoadUInt(32)
+				if err == nil && op == 0 {
+					comment, _ = forward.LoadStringSnake()
+				}
+			}
+		}
+	}
+
+	return amount, sender, comment, true
 }
 
 // extractComment извлекает комментарий из тела сообщения
@@ -387,18 +471,96 @@ func (s *Service) SendTON(ctx context.Context, toAddress string, amount float64,
 
 // SendUSDT отправляет USDT Jetton на указанный адрес
 func (s *Service) SendUSDT(ctx context.Context, toAddress string, amount float64, comment string) (string, error) {
-	// USDT Jetton transfer требует более сложной логики
-	// Здесь нужно отправить jetton transfer на jetton wallet
-	return "", fmt.Errorf("USDT transfers not yet implemented")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.masterWallet == nil {
+		return "", fmt.Errorf("master wallet not initialized")
+	}
+
+	if s.usdtMaster == nil {
+		return "", fmt.Errorf("USDT master address not configured")
+	}
+
+	toAddr, err := address.ParseAddr(toAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid destination address: %w", err)
+	}
+
+	// Находим USDT кошелек мастера если он еще не кэширован
+	if s.masterUSDTAddr == nil {
+		jettonMaster := jetton.NewJettonMasterClient(s.client, s.usdtMaster)
+		usdtWallet, err := jettonMaster.GetJettonWallet(ctx, s.masterAddr)
+		if err != nil {
+			return "", fmt.Errorf("failed to get master USDT wallet: %w", err)
+		}
+		s.masterUSDTAddr = usdtWallet.Address()
+	}
+
+	// Сумма в минимальных единицах USDT (6 знаков)
+	amountUnits := uint64(amount * 1e6)
+
+	// Создаём payload для перевода жетонов
+	// op::transfer#0f8a7ea5 query_id:uint64 amount:(VarUInteger 16) destination:MsgAddress
+	//                     response_destination:MsgAddress custom_payload:(Maybe ^Cell)
+	//                     forward_ton_amount:(VarUInteger 16) forward_payload:(Either Cell ^Cell)
+
+	forwardPayload := cell.BeginCell()
+	if comment != "" {
+		forwardPayload.MustStoreUInt(0, 32).MustStoreStringSnake(comment)
+	}
+
+	transferPayload := cell.BeginCell().
+		MustStoreUInt(0xf8a7ea5, 32). // op::transfer
+		MustStoreUInt(0, 64).        // query_id
+		MustStoreCoins(amountUnits).
+		MustStoreAddr(toAddr).
+		MustStoreAddr(s.masterAddr). // response_destination
+		MustStoreBoolBit(false).     // no custom_payload
+		MustStoreCoins(tlb.MustFromTON("0.05").Nano().Uint64()). // forward_ton_amount
+		MustStoreBoolBit(true).      // forward_payload in ref
+		MustStoreRef(forwardPayload.EndCell()).
+		EndCell()
+
+	// Отправляем транзакцию на USDT кошелек мастера
+	err = s.masterWallet.Send(ctx, &wallet.Message{
+		Mode: wallet.PayGasSeparately + wallet.IgnoreErrors,
+		InternalMessage: &tlb.InternalMessage{
+			IHRDisabled: true,
+			Bounce:      true,
+			DstAddr:     s.masterUSDTAddr,
+			Amount:      tlb.MustFromTON("0.1"), // Газ для транзакции
+			Body:        transferPayload,
+		},
+	}, true)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to send USDT transaction: %w", err)
+	}
+
+	// В TON хеш транзакции становится известен только после её включения в блок.
+	// Пока возвращаем временный идентификатор, BlockchainWorker позже сопоставит его.
+	txHash := fmt.Sprintf("pending_usdt_%d", time.Now().UnixNano())
+	return txHash, nil
 }
 
 // GeneratePaymentDeepLink генерирует deep link для оплаты через TON кошелёк
-func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comment string) string {
-	// Формат: ton://transfer/<address>?amount=<nanotons>&text=<comment>
-	amountNano := int64(amount * 1e9)
-
+func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comment string, currency string) string {
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%d", amountNano))
+
+	if currency == models.CurrencyUSDT {
+		// Для USDT (Jetton)
+		amountUnits := int64(amount * 1e6)
+		params.Set("amount", fmt.Sprintf("%d", amountUnits))
+		if s.config.USDTMasterAddress != "" {
+			params.Set("jetton", s.config.USDTMasterAddress)
+		}
+	} else {
+		// Для TON (нативный)
+		amountNano := int64(amount * 1e9)
+		params.Set("amount", fmt.Sprintf("%d", amountNano))
+	}
+
 	if comment != "" {
 		params.Set("text", comment)
 	}
@@ -407,11 +569,20 @@ func (s *Service) GeneratePaymentDeepLink(toAddress string, amount float64, comm
 }
 
 // GenerateTonkeeperDeepLink генерирует deep link для Tonkeeper
-func (s *Service) GenerateTonkeeperDeepLink(toAddress string, amount float64, comment string) string {
-	amountNano := int64(amount * 1e9)
-
+func (s *Service) GenerateTonkeeperDeepLink(toAddress string, amount float64, comment string, currency string) string {
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%d", amountNano))
+
+	if currency == models.CurrencyUSDT {
+		amountUnits := int64(amount * 1e6)
+		params.Set("amount", fmt.Sprintf("%d", amountUnits))
+		if s.config.USDTMasterAddress != "" {
+			params.Set("jetton", s.config.USDTMasterAddress)
+		}
+	} else {
+		amountNano := int64(amount * 1e9)
+		params.Set("amount", fmt.Sprintf("%d", amountNano))
+	}
+
 	if comment != "" {
 		params.Set("text", comment)
 	}

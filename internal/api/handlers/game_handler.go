@@ -384,6 +384,8 @@ func (h *GameHandler) GetActiveGames(c *gin.Context) {
 		}
 	}
 
+	currency := c.Query("currency")
+
 	// Получаем ID текущего пользователя для фильтрации
 	userID, userIDExists := middleware.GetCurrentUserID(c)
 
@@ -392,10 +394,10 @@ func (h *GameHandler) GetActiveGames(c *gin.Context) {
 
 	if userIDExists {
 		// Для авторизованных пользователей исключаем сыгранные и свои игры
-		games, err = h.gameService.GetActiveGamesForUser(c, userID, limit, offset)
+		games, err = h.gameService.GetActiveGamesForUser(c, userID, currency, limit, offset)
 	} else {
 		// Для неавторизованных просто возвращаем активные игры
-		games, err = h.gameService.GetActiveGames(c, limit, offset)
+		games, err = h.gameService.GetActiveGames(c, currency, limit, offset)
 	}
 
 	if err != nil {
@@ -595,6 +597,7 @@ func (h *GameHandler) SearchGames(c *gin.Context) {
 	minBet := 0.0
 	maxBet := 1000000.0
 	difficulty := ""
+	currency := ""
 	limit := 10
 	offset := 0
 
@@ -611,6 +614,7 @@ func (h *GameHandler) SearchGames(c *gin.Context) {
 	}
 
 	difficulty = c.Query("difficulty")
+	currency = c.Query("currency")
 
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
@@ -624,7 +628,7 @@ func (h *GameHandler) SearchGames(c *gin.Context) {
 		}
 	}
 
-	games, err := h.gameService.SearchGames(c, minBet, maxBet, difficulty, limit, offset)
+	games, err := h.gameService.SearchGames(c, minBet, maxBet, difficulty, currency, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search games"})
 		return

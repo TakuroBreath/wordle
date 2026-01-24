@@ -167,15 +167,20 @@ func (h *UserHandler) GetDepositInfo(c *gin.Context) {
 
 	var deepLink string
 	if h.tonService != nil {
-		deepLink = h.tonService.GeneratePaymentDeepLink(masterWallet, 0, comment)
+		deepLink = h.tonService.GeneratePaymentDeepLink(masterWallet, 0, comment, currency)
+	}
+
+	instructions := "Send TON to the address above. Make sure your wallet is connected so we can identify your deposit."
+	if currency == models.CurrencyUSDT {
+		instructions = "Send USDT (TON Jetton) to the address above. Make sure your wallet is connected so we can identify your deposit."
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"address":        masterWallet,
-		"currency":       currency,
-		"deep_link":      deepLink,
-		"user_wallet":    user.Wallet,
-		"instructions": "Send TON to the address above. Make sure your wallet is connected so we can identify your deposit.",
+		"address":      masterWallet,
+		"currency":     currency,
+		"deep_link":    deepLink,
+		"user_wallet":  user.Wallet,
+		"instructions": instructions,
 	})
 }
 

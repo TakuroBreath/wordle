@@ -311,11 +311,11 @@ func (s *GameServiceImpl) DeleteGame(ctx context.Context, id uuid.UUID) error {
 }
 
 // GetActiveGames получает список активных игр
-func (s *GameServiceImpl) GetActiveGames(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+func (s *GameServiceImpl) GetActiveGames(ctx context.Context, currency string, limit, offset int) ([]*models.Game, error) {
 	log := s.logger.With(zap.String("method", "GetActiveGames"))
-	log.Debug("Getting active games")
+	log.Debug("Getting active games", zap.String("currency", currency))
 
-	games, err := s.gameRepo.GetActive(ctx, limit, offset)
+	games, err := s.gameRepo.GetActive(ctx, currency, limit, offset)
 	if err != nil {
 		log.Error("Failed to get active games", zap.Error(err))
 		return nil, err
@@ -326,11 +326,11 @@ func (s *GameServiceImpl) GetActiveGames(ctx context.Context, limit, offset int)
 }
 
 // GetActiveGamesForUser получает список активных игр для конкретного пользователя (исключая сыгранные и свои)
-func (s *GameServiceImpl) GetActiveGamesForUser(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+func (s *GameServiceImpl) GetActiveGamesForUser(ctx context.Context, userID uint64, currency string, limit, offset int) ([]*models.Game, error) {
 	log := s.logger.With(zap.String("method", "GetActiveGamesForUser"), zap.Uint64("user_id", userID))
-	log.Debug("Getting active games for user")
+	log.Debug("Getting active games for user", zap.String("currency", currency))
 
-	games, err := s.gameRepo.GetActiveExcludingPlayed(ctx, userID, limit, offset)
+	games, err := s.gameRepo.GetActiveExcludingPlayed(ctx, userID, currency, limit, offset)
 	if err != nil {
 		log.Error("Failed to get active games for user", zap.Error(err))
 		return nil, err
@@ -346,8 +346,8 @@ func (s *GameServiceImpl) GetPendingGames(ctx context.Context, limit, offset int
 }
 
 // SearchGames ищет игры по параметрам
-func (s *GameServiceImpl) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*models.Game, error) {
-	return s.gameRepo.SearchGames(ctx, minBet, maxBet, difficulty, limit, offset)
+func (s *GameServiceImpl) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, currency string, limit, offset int) ([]*models.Game, error) {
+	return s.gameRepo.SearchGames(ctx, minBet, maxBet, difficulty, currency, limit, offset)
 }
 
 // GetGameStats получает статистику игры
@@ -479,7 +479,7 @@ func (s *GameServiceImpl) GetPaymentInfo(ctx context.Context, gameID uuid.UUID) 
 	comment := fmt.Sprintf("GD_%s_%d", game.ShortID, time.Now().Unix())
 
 	masterWallet := s.tonService.GetMasterWalletAddress()
-	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, game.DepositAmount, comment)
+	deepLink := s.tonService.GeneratePaymentDeepLink(masterWallet, game.DepositAmount, comment, game.Currency)
 
 	return &models.PaymentInfo{
 		Address:  masterWallet,

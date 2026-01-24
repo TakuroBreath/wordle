@@ -248,6 +248,16 @@ func (w *BlockchainWorker) processGameDeposit(ctx context.Context, gameShortID s
 		return fmt.Errorf("game not found: %w", err)
 	}
 
+	// Проверяем валюту транзакции
+	if tx.Currency != game.Currency {
+		w.logger.Warn("Currency mismatch for game deposit",
+			zap.String("game_id", game.ID.String()),
+			zap.String("game_currency", game.Currency),
+			zap.String("tx_currency", tx.Currency))
+		// В идеале здесь нужно вернуть средства пользователю
+		return nil
+	}
+
 	// Проверяем статус игры
 	if game.Status != models.GameStatusPending {
 		w.logger.Warn("Game is not pending, skipping deposit",
@@ -294,6 +304,13 @@ func (w *BlockchainWorker) processGameDeposit(ctx context.Context, gameShortID s
 		game.RewardPoolUsdt += tx.Amount
 	}
 	game.DepositTxHash = tx.Hash
+
+	// Обновляем статистику пользователя
+	if err := w.userRepo.UpdateTotalDeposited(ctx, game.CreatorID, tx.Amount); err != nil {
+		w.logger.Error("Failed to update user total deposited",
+			zap.Error(err),
+			zap.Uint64("user_id", game.CreatorID))
+	}
 	game.DepositAmount = tx.Amount
 	game.UpdatedAt = time.Now()
 
@@ -343,6 +360,16 @@ func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID stri
 	game, err := w.gameRepo.GetByShortID(ctx, gameShortID)
 	if err != nil {
 		return fmt.Errorf("game not found: %w", err)
+	}
+
+	// Проверяем валюту транзакции
+	if tx.Currency != game.Currency {
+		w.logger.Warn("Currency mismatch for lobby bet",
+			zap.String("game_id", game.ID.String()),
+			zap.String("game_currency", game.Currency),
+			zap.String("tx_currency", tx.Currency))
+		// В идеале здесь нужно вернуть средства пользователю
+		return nil
 	}
 
 	// Проверяем статус игры
@@ -397,6 +424,10 @@ func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID stri
 		// Добавляем средства на баланс пользователя
 		if game.Currency == models.CurrencyTON {
 			if err := w.userRepo.UpdateTonBalance(ctx, user.TelegramID, tx.Amount); err != nil {
+				return fmt.Errorf("failed to credit user balance: %w", err)
+			}
+		} else if game.Currency == models.CurrencyUSDT {
+			if err := w.userRepo.UpdateUsdtBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 				return fmt.Errorf("failed to credit user balance: %w", err)
 			}
 		}
@@ -498,6 +529,13 @@ func (w *BlockchainWorker) processUserDeposit(ctx context.Context, tx *models.Bl
 		if err := w.userRepo.UpdateUsdtBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 			return fmt.Errorf("failed to update user balance: %w", err)
 		}
+	}
+
+	// Обновляем статистику пользователя
+	if err := w.userRepo.UpdateTotalDeposited(ctx, user.TelegramID, tx.Amount); err != nil {
+		w.logger.Error("Failed to update user total deposited",
+			zap.Error(err),
+			zap.Uint64("user_id", user.TelegramID))
 	}
 
 	// Сохраняем транзакцию

@@ -317,15 +317,22 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 		}(), amount)
 	}
 
+	// Получаем комиссию
+	var fee float64
+	if s.blockchainProvider != nil {
+		fee = s.blockchainProvider.GetWithdrawFee(currency, amount)
+	}
+
 	tx := &models.Transaction{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Type:        models.TransactionTypeWithdraw,
 		Amount:      amount,
+		Fee:         fee,
 		Currency:    currency,
 		Status:      models.TransactionStatusPending, // Статус Pending, пока не подтвердится реальный вывод
 		ToAddress:   toAddress,
-		Description: fmt.Sprintf("Withdrawal of %.6f %s to %s", amount, currency, toAddress),
+		Description: fmt.Sprintf("Withdrawal of %.6f %s to %s (fee: %.6f)", amount, currency, toAddress, fee),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
