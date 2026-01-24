@@ -9,7 +9,7 @@
 Технологии
 	•	Язык: Go 1.24+
 	•	Хранилище: PostgreSQL, In-Memory (для сессий и кэша)
-	•	Blockchain: TON (через SDK / gRPC / REST)
+	•	Blockchain: TON + Base (USDC, EVM RPC)
 	•	API: REST (JSON over HTTPS), Gin
 	•	Аутентификация: через Telegram Mini App авторизацию
 	•	Observability:
@@ -45,7 +45,7 @@
 	•	min_bet: float64
 	•	max_bet: float64
 	•	reward_multiplier: float64
-	•	currency: string ("TON" или "USDT")
+	•	currency: string ("TON", "USDT" или "USDC")
 	•	reward_pool_ton: float64
 	•	reward_pool_usdt: float64
 	•	status: string ("active" или "inactive")

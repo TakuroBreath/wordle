@@ -22,6 +22,7 @@ type Config struct {
 	IdleTimeout  time.Duration
 	BotToken     string
 	AuthEnabled  bool
+	Network      string
 }
 
 // Server представляет HTTP-сервер приложения
@@ -40,9 +41,11 @@ func NewServer(cfg Config, services *service.ServiceImpl) *Server {
 		services.Lobby(),
 		services.Transaction(),
 		services.TONService(),
+		services.BlockchainProvider(),
 		routes.RouterConfig{
 			AuthEnabled: cfg.AuthEnabled,
 			BotToken:    cfg.BotToken,
+			Network:     cfg.Network,
 		},
 	)
 

@@ -24,6 +24,7 @@ type Network string
 const (
 	NetworkTON Network = "ton"
 	NetworkEVM Network = "evm"
+	NetworkBase Network = "base"
 )
 
 // Config представляет конфигурацию приложения
@@ -78,6 +79,7 @@ type MetricsConfig struct {
 type BlockchainConfig struct {
 	TON      TONConfig      `yaml:"ton"`
 	Ethereum EthereumConfig `yaml:"ethereum"`
+	Base     BaseConfig     `yaml:"base"`
 }
 
 // TONConfig конфигурация для TON блокчейна
@@ -108,6 +110,19 @@ type EthereumConfig struct {
 	WithdrawFeeETH        float64 `yaml:"withdraw_fee"`
 	RequiredConfirmations int     `yaml:"required_confirmations"`
 	USDTContractAddress   string  `yaml:"usdt_contract"`
+}
+
+// BaseConfig конфигурация для Base сети (USDC)
+type BaseConfig struct {
+	RPCURL                string  `yaml:"rpc_url"`
+	ChainID               int64   `yaml:"chain_id"`
+	MasterWallet          string  `yaml:"master_wallet"`
+	PrivateKey            string  `yaml:"private_key"`
+	MinWithdrawUSDC       float64 `yaml:"min_withdraw"`
+	WithdrawFeeUSDC       float64 `yaml:"withdraw_fee"`
+	RequiredConfirmations int     `yaml:"required_confirmations"`
+	USDCContractAddress   string  `yaml:"usdc_contract"`
+	TokenDecimals         int     `yaml:"token_decimals"`
 }
 
 // Load загружает конфигурацию из YAML файла
@@ -215,6 +230,13 @@ func defaultConfig() *Config {
 				WithdrawFeeETH:        0.001,
 				RequiredConfirmations: 3,
 			},
+			Base: BaseConfig{
+				ChainID:               84532, // Base Sepolia
+				MinWithdrawUSDC:       1.0,
+				WithdrawFeeUSDC:       0.5,
+				RequiredConfirmations: 3,
+				TokenDecimals:         6,
+			},
 		},
 	}
 }
@@ -233,8 +255,8 @@ func (c *Config) applyEnvironmentRules() {
 		c.UseMockProvider = false
 	}
 
-	// Для EVM пока авторизация отключена (в будущем - через кошелёк)
-	if c.Network == NetworkEVM {
+	// Для EVM/Base пока авторизация отключена (в будущем - через кошелёк)
+	if c.Network == NetworkEVM || c.Network == NetworkBase {
 		c.Auth.Enabled = false
 	}
 }
@@ -282,6 +304,8 @@ func (c *Config) GetBlockchainProviderType() string {
 		return "ton"
 	case NetworkEVM:
 		return "ethereum"
+	case NetworkBase:
+		return "base"
 	default:
 		return "mock"
 	}
@@ -312,6 +336,8 @@ func (c *Config) GetSupportedCurrencies() []string {
 		return []string{"TON", "USDT"}
 	case NetworkEVM:
 		return []string{"ETH", "USDT", "USDC"}
+	case NetworkBase:
+		return []string{"USDC"}
 	default:
 		return []string{"TON", "USDT"}
 	}
@@ -332,6 +358,8 @@ func ParseNetwork(s string) Network {
 	switch strings.ToLower(s) {
 	case "evm", "ethereum", "eth":
 		return NetworkEVM
+	case "base":
+		return NetworkBase
 	default:
 		return NetworkTON
 	}

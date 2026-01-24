@@ -54,6 +54,7 @@ func New(cfg *config.Config) (*App, error) {
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 		BotToken:     cfg.Auth.BotToken,
 		AuthEnabled:  cfg.IsAuthEnabled(),
+		Network:      string(cfg.Network),
 	}
 	httpServer := server.NewServer(serverConfig, servicesImpl)
 

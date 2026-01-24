@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/TakuroBreath/wordle/internal/api/handlers"
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
+	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
@@ -14,6 +15,7 @@ import (
 type RouterConfig struct {
 	AuthEnabled bool
 	BotToken    string
+	Network     string
 }
 
 // Services содержит все сервисы для роутера
@@ -24,6 +26,7 @@ type Services struct {
 	LobbyService       models.LobbyService
 	TransactionService models.TransactionService
 	TONService         models.TONService
+	BlockchainProvider blockchain.BlockchainProvider
 }
 
 // SetupRouter настраивает маршруты API и middleware
@@ -43,9 +46,11 @@ func SetupRouter(
 		lobbyService,
 		transactionService,
 		nil, // No TON service in legacy mode
+		nil, // No blockchain provider in legacy mode
 		RouterConfig{
 			AuthEnabled: true,
 			BotToken:    botToken,
+			Network:     "",
 		},
 	)
 }
@@ -58,6 +63,7 @@ func SetupRouterWithConfig(
 	lobbyService models.LobbyService,
 	transactionService models.TransactionService,
 	tonService models.TONService,
+	blockchainProvider blockchain.BlockchainProvider,
 	config RouterConfig,
 ) *gin.Engine {
 	logger.Log.Info("Setting up router",
@@ -73,10 +79,10 @@ func SetupRouterWithConfig(
 
 	// Инициализация обработчиков
 	authHandler := handlers.NewAuthHandler(authService, config.BotToken)
-	userHandler := handlers.NewUserHandler(userService, transactionService, tonService)
-	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService, lobbyService)
+	userHandler := handlers.NewUserHandler(userService, transactionService, tonService, blockchainProvider, config.Network)
+	gameHandler := handlers.NewGameHandler(gameService, userService, transactionService, lobbyService, config.Network)
 	lobbyHandler := handlers.NewLobbyHandler(lobbyService, gameService, userService)
-	transactionHandler := handlers.NewTransactionHandler(transactionService, userService)
+	transactionHandler := handlers.NewTransactionHandler(transactionService, userService, config.Network)
 
 	logger.Log.Info("Handlers initialized")
 
@@ -170,6 +176,7 @@ func SetupRouterWithServices(services Services, config RouterConfig) *gin.Engine
 		services.LobbyService,
 		services.TransactionService,
 		services.TONService,
+		services.BlockchainProvider,
 		config,
 	)
 }

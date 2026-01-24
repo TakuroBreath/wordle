@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/models"
@@ -16,6 +17,7 @@ type GameHandler struct {
 	userService        models.UserService
 	transactionService models.TransactionService
 	lobbyService       models.LobbyService
+	network            string
 }
 
 // NewGameHandler создает новый экземпляр GameHandler
@@ -24,12 +26,14 @@ func NewGameHandler(
 	userService models.UserService,
 	transactionService models.TransactionService,
 	lobbyService models.LobbyService,
+	network string,
 ) *GameHandler {
 	return &GameHandler{
 		gameService:        gameService,
 		userService:        userService,
 		transactionService: transactionService,
 		lobbyService:       lobbyService,
+		network:            network,
 	}
 }
 
@@ -64,10 +68,17 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 		input.TimeLimit = 5
 	}
 
-	// Проверка валидности валюты
-	if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be TON or USDT"})
-		return
+	isBase := strings.EqualFold(h.network, "base")
+	if isBase {
+		if input.Currency != models.CurrencyUSDC {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be USDC"})
+			return
+		}
+	} else {
+		if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be TON or USDT"})
+			return
+		}
 	}
 
 	// Проверка валидности сложности
@@ -100,6 +111,73 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 		DepositAmount:    depositAmount,
 		Currency:         input.Currency,
 		Status:           models.GameStatusPending,
+	}
+
+	if isBase {
+		hasBalance, err := h.userService.ValidateBalance(c, userID, depositAmount, models.CurrencyUSDC)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate balance"})
+			return
+		}
+		if !hasBalance {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "insufficient USDC balance for deposit"})
+			return
+		}
+		if err := h.gameService.CreateGame(c, game); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := h.userService.UpdateUsdtBalance(c, userID, -depositAmount); err != nil {
+			_ = h.gameService.DeleteGame(c, game.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reserve deposit from balance"})
+			return
+		}
+		if err := h.gameService.AddToRewardPool(c, game.ID, depositAmount); err != nil {
+			_ = h.userService.UpdateUsdtBalance(c, userID, depositAmount)
+			_ = h.gameService.DeleteGame(c, game.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fund reward pool"})
+			return
+		}
+		if err := h.gameService.ActivateGame(c, game.ID); err != nil {
+			_ = h.userService.UpdateUsdtBalance(c, userID, depositAmount)
+			_ = h.gameService.DeleteGame(c, game.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to activate game"})
+			return
+		}
+
+		_ = h.transactionService.CreateTransaction(c, &models.Transaction{
+			UserID:      userID,
+			Type:        models.TransactionTypeGameDeposit,
+			Amount:      depositAmount,
+			Currency:    models.CurrencyUSDC,
+			Status:      models.TransactionStatusCompleted,
+			GameID:      &game.ID,
+			GameShortID: game.ShortID,
+			Description: "Game deposit funded from balance",
+		})
+
+		game.RewardPoolUsdt = depositAmount
+		game.Status = models.GameStatusActive
+
+		c.JSON(http.StatusCreated, gin.H{
+			"id":                game.ID,
+			"short_id":          game.ShortID,
+			"creator_id":        game.CreatorID,
+			"word_length":       game.Length,
+			"difficulty":        game.Difficulty,
+			"max_tries":         game.MaxTries,
+			"time_limit":        game.TimeLimit,
+			"title":             game.Title,
+			"description":       game.Description,
+			"min_bet":           game.MinBet,
+			"max_bet":           game.MaxBet,
+			"reward_multiplier": game.RewardMultiplier,
+			"deposit_amount":    game.DepositAmount,
+			"currency":          game.Currency,
+			"status":            game.Status,
+			"message":           "Game created and funded from balance",
+		})
+		return
 	}
 
 	if err := h.gameService.CreateGame(c, game); err != nil {
@@ -210,6 +288,11 @@ func (h *GameHandler) GetGame(c *gin.Context) {
 
 // GetPaymentInfo получает информацию для оплаты депозита игры
 func (h *GameHandler) GetPaymentInfo(c *gin.Context) {
+	if strings.EqualFold(h.network, "base") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "payment info not available for Base, use balance"})
+		return
+	}
+
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
@@ -319,6 +402,10 @@ func (h *GameHandler) JoinGame(c *gin.Context) {
 			"lobby_id": existingLobby.ID,
 		})
 		return
+	}
+
+	if strings.EqualFold(h.network, "base") {
+		input.UseBalance = true
 	}
 
 	if input.UseBalance {

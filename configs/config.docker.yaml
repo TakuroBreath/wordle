@@ -66,3 +66,14 @@ blockchain:
     withdraw_fee: 0.001
     required_confirmations: 3
     usdt_contract: ""
+
+  base:
+    rpc_url: ""
+    chain_id: 84532
+    master_wallet: ""
+    private_key: ""
+    min_withdraw: 1.0
+    withdraw_fee: 0.5
+    required_confirmations: 3
+    usdc_contract: ""
+    token_decimals: 6

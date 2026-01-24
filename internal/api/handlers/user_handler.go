@@ -3,8 +3,10 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
+	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/gin-gonic/gin"
 )
@@ -14,6 +16,8 @@ type UserHandler struct {
 	userService        models.UserService
 	transactionService models.TransactionService
 	tonService         models.TONService
+	blockchainProvider blockchain.BlockchainProvider
+	network            string
 }
 
 // NewUserHandler создает новый экземпляр UserHandler
@@ -21,11 +25,15 @@ func NewUserHandler(
 	userService models.UserService,
 	transactionService models.TransactionService,
 	tonService models.TONService,
+	blockchainProvider blockchain.BlockchainProvider,
+	network string,
 ) *UserHandler {
 	return &UserHandler{
 		userService:        userService,
 		transactionService: transactionService,
 		tonService:         tonService,
+		blockchainProvider: blockchainProvider,
+		network:            network,
 	}
 }
 
@@ -45,6 +53,7 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 		"wallet":             user.Wallet,
 		"balance_ton":        user.BalanceTon,
 		"balance_usdt":       user.BalanceUsdt,
+		"balance_usdc":       user.BalanceUsdt,
 		"pending_withdrawal": user.PendingWithdrawal,
 		"wins":               user.Wins,
 		"losses":             user.Losses,
@@ -95,12 +104,14 @@ func (h *UserHandler) GetUserBalance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"balance_ton":          user.BalanceTon,
-		"balance_usdt":         user.BalanceUsdt,
-		"available_ton":        user.GetAvailableBalance(models.CurrencyTON),
-		"available_usdt":       user.GetAvailableBalance(models.CurrencyUSDT),
-		"pending_withdrawal":   user.PendingWithdrawal,
-		"can_withdraw":         user.CanWithdraw(),
+		"balance_ton":        user.BalanceTon,
+		"balance_usdt":       user.BalanceUsdt,
+		"balance_usdc":       user.BalanceUsdt,
+		"available_ton":      user.GetAvailableBalance(models.CurrencyTON),
+		"available_usdt":     user.GetAvailableBalance(models.CurrencyUSDT),
+		"available_usdc":     user.GetAvailableBalance(models.CurrencyUSDC),
+		"pending_withdrawal": user.PendingWithdrawal,
+		"can_withdraw":       user.CanWithdraw(),
 	})
 }
 
@@ -122,7 +133,13 @@ func (h *UserHandler) ConnectWallet(c *gin.Context) {
 	}
 
 	// Валидируем адрес
-	if h.tonService != nil && !h.tonService.ValidateAddress(input.Wallet) {
+	if h.blockchainProvider != nil {
+		valid, err := h.blockchainProvider.ValidateAddress(c, input.Wallet)
+		if err != nil || !valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid wallet address"})
+			return
+		}
+	} else if h.tonService != nil && !h.tonService.ValidateAddress(input.Wallet) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid wallet address"})
 		return
 	}
@@ -146,17 +163,37 @@ func (h *UserHandler) GetDepositInfo(c *gin.Context) {
 		return
 	}
 
-	currency := c.DefaultQuery("currency", models.CurrencyTON)
-	if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
-		return
+	defaultCurrency := models.CurrencyTON
+	if strings.EqualFold(h.network, "base") {
+		defaultCurrency = models.CurrencyUSDC
+	}
+	currency := c.DefaultQuery("currency", defaultCurrency)
+	if strings.EqualFold(h.network, "base") {
+		if currency != models.CurrencyUSDC {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+			return
+		}
+	} else {
+		if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+			return
+		}
 	}
 
-	// Получаем адрес для депозита
-	masterWallet := h.tonService.GetMasterWalletAddress()
-
-	// Генерируем уникальный комментарий для идентификации
-	comment := "deposit" // Простой депозит без комментария - будет идентифицирован по адресу кошелька
+	var masterWallet string
+	var comment string
+	if h.blockchainProvider != nil {
+		addr, err := h.blockchainProvider.GenerateDepositAddress(c, userID, currency)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate deposit address"})
+			return
+		}
+		masterWallet = addr.Address
+		comment = addr.Memo
+	} else if h.tonService != nil {
+		masterWallet = h.tonService.GetMasterWalletAddress()
+		comment = "deposit"
+	}
 
 	// Получаем пользователя для проверки кошелька
 	user, err := h.userService.GetUser(c, userID)
@@ -166,19 +203,25 @@ func (h *UserHandler) GetDepositInfo(c *gin.Context) {
 	}
 
 	var deepLink string
-	if h.tonService != nil {
+	if h.tonService != nil && currency != models.CurrencyUSDC {
 		deepLink = h.tonService.GeneratePaymentDeepLink(masterWallet, 0, comment, currency)
 	}
 
-	instructions := "Send TON to the address above. Make sure your wallet is connected so we can identify your deposit."
-	if currency == models.CurrencyUSDT {
+	instructions := "Send funds to the address above. Make sure your wallet is connected so we can identify your deposit."
+	if currency == models.CurrencyTON {
+		instructions = "Send TON to the address above. Make sure your wallet is connected so we can identify your deposit."
+	} else if currency == models.CurrencyUSDT {
 		instructions = "Send USDT (TON Jetton) to the address above. Make sure your wallet is connected so we can identify your deposit."
+	} else if currency == models.CurrencyUSDC {
+		instructions = "Send USDC on Base to the address above. Make sure your wallet is connected so we can identify your deposit."
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"address":      masterWallet,
 		"currency":     currency,
+		"network":      h.network,
 		"deep_link":    deepLink,
+		"comment":      comment,
 		"user_wallet":  user.Wallet,
 		"instructions": instructions,
 	})
@@ -203,9 +246,17 @@ func (h *UserHandler) RequestWithdraw(c *gin.Context) {
 		return
 	}
 
-	if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
-		return
+	isBase := strings.EqualFold(h.network, "base")
+	if isBase {
+		if input.Currency != models.CurrencyUSDC {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be USDC"})
+			return
+		}
+	} else {
+		if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency"})
+			return
+		}
 	}
 
 	// Проверяем возможность вывода
@@ -417,12 +468,12 @@ func (h *UserHandler) GetTopUsers(c *gin.Context) {
 	result := make([]gin.H, 0, len(users))
 	for i, user := range users {
 		result = append(result, gin.H{
-			"rank":       i + 1,
+			"rank":        i + 1,
 			"telegram_id": user.TelegramID,
-			"username":   user.Username,
-			"first_name": user.FirstName,
-			"wins":       user.Wins,
-			"losses":     user.Losses,
+			"username":    user.Username,
+			"first_name":  user.FirstName,
+			"wins":        user.Wins,
+			"losses":      user.Losses,
 		})
 	}
 
