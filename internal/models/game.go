@@ -200,15 +200,10 @@ func CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int, c
 		return 0
 	}
 
-	// Базовая награда
-	baseReward := bet * multiplier
+	// Валовая награда (без бонусов)
+	grossReward := bet * multiplier
 
-	// Бонус за быстрое угадывание (чем меньше попыток - тем больше бонус)
-	triesBonus := 1.0 + (float64(maxTries-triesUsed)/float64(maxTries))*0.5
-
-	grossReward := baseReward * triesBonus
-
-	// Вычитаем комиссию
+	// Вычитаем комиссию (чистая награда игрока)
 	netReward := grossReward * (1 - commissionRate)
 
 	return netReward
