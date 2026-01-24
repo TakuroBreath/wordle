@@ -19,10 +19,10 @@ type GameService interface {
 	DeleteGame(ctx context.Context, id uuid.UUID) error
 	
 	// Получение списков
-	GetActiveGames(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetActiveGamesForUser(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
+	GetActiveGames(ctx context.Context, currency string, limit, offset int) ([]*Game, error)
+	GetActiveGamesForUser(ctx context.Context, userID uint64, currency string, limit, offset int) ([]*Game, error)
 	GetPendingGames(ctx context.Context, limit, offset int) ([]*Game, error)
-	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
+	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, currency string, limit, offset int) ([]*Game, error)
 	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error)
 	
 	// Управление статусом и балансом

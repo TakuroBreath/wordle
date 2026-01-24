@@ -188,7 +188,7 @@ func (r *GameRepository) GetAll(ctx context.Context, limit, offset int) ([]*mode
 }
 
 // GetActive получает все активные игры с пагинацией
-func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*models.Game, error) {
+func (r *GameRepository) GetActive(ctx context.Context, currency string, limit, offset int) ([]*models.Game, error) {
 	log := r.logger.With(zap.String("method", "GetActive"))
 
 	query := `
@@ -197,11 +197,12 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 		status, created_at, updated_at
 	FROM games
 	WHERE status = 'active'
+	AND ($1 = '' OR currency = $1)
 	ORDER BY RANDOM()
-	LIMIT $1 OFFSET $2
+	LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, currency, limit, offset)
 	if err != nil {
 		log.Error("Failed to get active games", zap.Error(err))
 		return nil, fmt.Errorf("failed to get active games: %w", err)
@@ -249,7 +250,7 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 }
 
 // GetActiveExcludingPlayed получает активные игры, исключая те, в которые пользователь уже играл или которые он создал
-func (r *GameRepository) GetActiveExcludingPlayed(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+func (r *GameRepository) GetActiveExcludingPlayed(ctx context.Context, userID uint64, currency string, limit, offset int) ([]*models.Game, error) {
 	log := r.logger.With(zap.String("method", "GetActiveExcludingPlayed"), zap.Uint64("user_id", userID))
 
 	query := `
@@ -259,15 +260,16 @@ func (r *GameRepository) GetActiveExcludingPlayed(ctx context.Context, userID ui
 	FROM games g
 	WHERE g.status = 'active'
 	AND g.creator_id != $1
+	AND ($2 = '' OR g.currency = $2)
 	AND NOT EXISTS (
 		SELECT 1 FROM lobbies l
 		WHERE l.game_id = g.id AND l.user_id = $1
 	)
 	ORDER BY RANDOM()
-	LIMIT $2 OFFSET $3
+	LIMIT $3 OFFSET $4
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, userID, currency, limit, offset)
 	if err != nil {
 		log.Error("Failed to get active games excluding played", zap.Error(err))
 		return nil, fmt.Errorf("failed to get active games: %w", err)
@@ -798,7 +800,7 @@ func (r *GameRepository) GetGameStats(ctx context.Context, gameID uuid.UUID) (ma
 }
 
 // SearchGames ищет игры по параметрам
-func (r *GameRepository) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*models.Game, error) {
+func (r *GameRepository) SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, currency string, limit, offset int) ([]*models.Game, error) {
 	query := `
 		SELECT id, creator_id, word, length, difficulty, max_tries, title, description,
 			   min_bet, max_bet, reward_multiplier, currency, reward_pool_ton, reward_pool_usdt,
@@ -808,11 +810,12 @@ func (r *GameRepository) SearchGames(ctx context.Context, minBet, maxBet float64
 		AND ($1 = 0 OR min_bet >= $1)
 		AND ($2 = 0 OR max_bet <= $2)
 		AND ($3 = '' OR difficulty = $3)
+		AND ($4 = '' OR currency = $4)
 		ORDER BY created_at DESC
-		LIMIT $4 OFFSET $5
+		LIMIT $5 OFFSET $6
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, minBet, maxBet, difficulty, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, minBet, maxBet, difficulty, currency, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search games: %w", err)
 	}

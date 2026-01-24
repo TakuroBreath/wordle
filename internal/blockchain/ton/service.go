@@ -372,29 +372,24 @@ func (s *Service) parseJettonTransferNotification(body *cell.Cell) (amount float
 	sender = senderAddr.String()
 
 	// Извлекаем forward_payload (комментарий)
-	if slice.BitsLeft() >= 32 {
-		// Проверяем на наличие комментария
-		loadForward := func(s *cell.Slice) string {
-			op, err := s.LoadUInt(32)
-			if err == nil && op == 0 {
-				str, err := s.LoadStringSnake()
-				if err == nil {
-					return str
-				}
-			}
-			return ""
-		}
-
+	if slice.BitsLeft() > 0 {
 		// forward_payload может быть либо в текущем слайсе, либо в рефе
 		isRef, err := slice.LoadBoolBit()
 		if err == nil {
+			var forward *cell.Slice
 			if isRef {
-				ref, err := slice.LoadRef()
-				if err == nil {
-					comment = loadForward(ref)
+				if slice.RefsNum() > 0 {
+					forward, _ = slice.LoadRef()
 				}
 			} else {
-				comment = loadForward(slice)
+				forward = slice
+			}
+
+			if forward != nil && forward.BitsLeft() >= 32 {
+				op, err := forward.LoadUInt(32)
+				if err == nil && op == 0 {
+					comment, _ = forward.LoadStringSnake()
+				}
 			}
 		}
 	}

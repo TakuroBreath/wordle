@@ -27,13 +27,13 @@ type GameRepository interface {
 	GetByCreator(ctx context.Context, creatorID uint64, limit, offset int) ([]*Game, error)
 	Update(ctx context.Context, game *Game) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetActive(ctx context.Context, limit, offset int) ([]*Game, error)
-	GetActiveExcludingPlayed(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
+	GetActive(ctx context.Context, currency string, limit, offset int) ([]*Game, error)
+	GetActiveExcludingPlayed(ctx context.Context, userID uint64, currency string, limit, offset int) ([]*Game, error)
 	GetByStatus(ctx context.Context, status string, limit, offset int) ([]*Game, error)
 	GetPending(ctx context.Context, limit, offset int) ([]*Game, error)
 	CountByUser(ctx context.Context, userID uint64) (int, error)
 	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error)
-	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
+	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, currency string, limit, offset int) ([]*Game, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateRewardPool(ctx context.Context, id uuid.UUID, rewardPoolTon, rewardPoolUsdt float64) error
 	UpdateReservedAmount(ctx context.Context, id uuid.UUID, reservedAmount float64) error
