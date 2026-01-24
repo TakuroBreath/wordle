@@ -10,6 +10,7 @@ type Network string
 const (
 	NetworkTON     Network = "TON"
 	NetworkEthereum Network = "ETH"
+	NetworkBase    Network = "BASE"
 	NetworkBSC     Network = "BSC"
 	NetworkTron    Network = "TRX"
 	NetworkSolana  Network = "SOL"

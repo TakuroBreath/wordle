@@ -10,6 +10,7 @@ import (
 const (
 	CurrencyTON  = "TON"
 	CurrencyUSDT = "USDT"
+	CurrencyUSDC = "USDC"
 )
 
 // Типы транзакций

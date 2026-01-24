@@ -42,13 +42,17 @@ func (p *MockProvider) VerifyTransaction(ctx context.Context, txHash string) (*b
 		return nil, fmt.Errorf("transaction hash cannot be empty")
 	}
 
+	currency := "TON"
+	if len(p.currencies) > 0 {
+		currency = p.currencies[0]
+	}
 	// Mock: возвращаем успешную транзакцию
 	return &blockchain.TransactionInfo{
 		Hash:        txHash,
 		From:        "mock_from_address",
 		To:          "mock_to_address",
 		Amount:      1.0,
-		Currency:    "TON",
+		Currency:    currency,
 		Status:      blockchain.TxStatusConfirmed,
 		BlockNumber: 12345678,
 		Timestamp:   time.Now().Unix(),

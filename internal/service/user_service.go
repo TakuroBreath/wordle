@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/logger"
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
@@ -14,15 +15,16 @@ import (
 
 // UserServiceImpl представляет собой реализацию сервиса для работы с пользователями
 type UserServiceImpl struct {
-	repo               models.UserRepository
-	transactionRepo    models.TransactionRepository
-	tonService         models.TONService
-	minWithdrawTON     float64
-	minWithdrawUSDT    float64
-	withdrawFeeTON     float64
-	withdrawFeeUSDT    float64
+	repo                models.UserRepository
+	transactionRepo     models.TransactionRepository
+	tonService          models.TONService
+	blockchainProvider  blockchain.BlockchainProvider
+	minWithdrawTON      float64
+	minWithdrawUSDT     float64
+	withdrawFeeTON      float64
+	withdrawFeeUSDT     float64
 	withdrawLockMinutes int
-	logger             *zap.Logger
+	logger              *zap.Logger
 }
 
 // UserServiceConfig конфигурация сервиса пользователей
@@ -39,12 +41,14 @@ func NewUserService(
 	repo models.UserRepository,
 	transactionRepo models.TransactionRepository,
 	tonService models.TONService,
+	blockchainProvider blockchain.BlockchainProvider,
 	config UserServiceConfig,
 ) models.UserService {
 	return &UserServiceImpl{
 		repo:                repo,
 		transactionRepo:     transactionRepo,
 		tonService:          tonService,
+		blockchainProvider:  blockchainProvider,
 		minWithdrawTON:      config.MinWithdrawTON,
 		minWithdrawUSDT:     config.MinWithdrawUSDT,
 		withdrawFeeTON:      config.WithdrawFeeTON,
@@ -264,7 +268,7 @@ func (s *UserServiceImpl) ValidateBalance(ctx context.Context, telegramID uint64
 	switch currency {
 	case models.CurrencyTON:
 		return user.GetAvailableBalance(models.CurrencyTON) >= requiredAmount, nil
-	case models.CurrencyUSDT:
+	case models.CurrencyUSDT, models.CurrencyUSDC:
 		return user.GetAvailableBalance(models.CurrencyUSDT) >= requiredAmount, nil
 	default:
 		return false, fmt.Errorf("unknown currency: %s", currency)
@@ -293,7 +297,7 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 	if amount <= 0 {
 		return nil, errors.New("withdraw amount must be positive")
 	}
-	if currency != models.CurrencyTON && currency != models.CurrencyUSDT {
+	if currency != models.CurrencyTON && currency != models.CurrencyUSDT && currency != models.CurrencyUSDC {
 		return nil, fmt.Errorf("unsupported currency: %s", currency)
 	}
 
@@ -331,7 +335,12 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 	}
 
 	// Валидируем адрес
-	if s.tonService != nil && !s.tonService.ValidateAddress(toAddress) {
+	if s.blockchainProvider != nil {
+		valid, err := s.blockchainProvider.ValidateAddress(ctx, toAddress)
+		if err != nil || !valid {
+			return nil, errors.New("invalid wallet address")
+		}
+	} else if s.tonService != nil && !s.tonService.ValidateAddress(toAddress) {
 		return nil, errors.New("invalid wallet address")
 	}
 

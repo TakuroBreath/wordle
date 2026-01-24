@@ -63,6 +63,11 @@ func TestTransactionService_ValidateCurrency(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "USDC",
+			currency: "USDC",
+			expected: true,
+		},
+		{
 			name:     "неизвестная валюта",
 			currency: "BTC",
 			expected: false,
@@ -90,7 +95,7 @@ func TestTransactionService_ValidateCurrency(t *testing.T) {
 }
 
 func validateCurrency(currency string) bool {
-	return currency == "TON" || currency == "USDT"
+	return currency == "TON" || currency == "USDT" || currency == "USDC"
 }
 
 func TestTransactionService_ValidateTransactionType(t *testing.T) {
@@ -120,6 +125,11 @@ func TestTransactionService_ValidateTransactionType(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "game_deposit",
+			txType:   "game_deposit",
+			expected: true,
+		},
+		{
 			name:     "неизвестный тип",
 			txType:   "unknown",
 			expected: false,
@@ -143,11 +153,15 @@ func TestTransactionService_ValidateTransactionType(t *testing.T) {
 
 func validateTransactionType(txType string) bool {
 	validTypes := map[string]bool{
-		"deposit":  true,
-		"withdraw": true,
-		"reward":   true,
-		"bet":      true,
-		"refund":   true,
+		"deposit":         true,
+		"withdraw":        true,
+		"reward":          true,
+		"bet":             true,
+		"refund":          true,
+		"game_deposit":    true,
+		"game_refund":     true,
+		"reserve":         true,
+		"release_reserve": true,
 	}
 	return validTypes[txType]
 }
@@ -168,6 +182,11 @@ func TestTransactionService_CalculateNetworkFee(t *testing.T) {
 			currency: "USDT",
 			expected: 0.5, // 0.5 USDT
 		},
+		{
+			name:     "комиссия USDC",
+			currency: "USDC",
+			expected: 0.5, // 0.5 USDC
+		},
 	}
 
 	for _, tt := range tests {
@@ -185,6 +204,8 @@ func calculateNetworkFee(currency string) float64 {
 	case "TON":
 		return 0.01
 	case "USDT":
+		return 0.5
+	case "USDC":
 		return 0.5
 	default:
 		return 0
@@ -305,7 +326,7 @@ func sprintf(format string, a ...any) string {
 // Benchmark тесты
 func BenchmarkValidateTransactionAmount(b *testing.B) {
 	amount := 1.0
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		validateTransactionAmount(amount)
@@ -314,7 +335,7 @@ func BenchmarkValidateTransactionAmount(b *testing.B) {
 
 func BenchmarkValidateCurrency(b *testing.B) {
 	currency := "TON"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		validateCurrency(currency)
@@ -323,7 +344,7 @@ func BenchmarkValidateCurrency(b *testing.B) {
 
 func BenchmarkFormatAmount(b *testing.B) {
 	amount := 10.12345
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		formatAmount(amount)

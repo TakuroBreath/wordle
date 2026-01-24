@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/TakuroBreath/wordle/internal/blockchain"
+	"github.com/TakuroBreath/wordle/internal/blockchain/base"
 	"github.com/TakuroBreath/wordle/internal/blockchain/ethereum"
 	"github.com/TakuroBreath/wordle/internal/blockchain/mock"
 	"github.com/TakuroBreath/wordle/internal/blockchain/ton"
@@ -116,7 +117,19 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 	txService := NewTransactionServiceImpl(repo.Transaction(), repo.User(), service.blockchainProvider)
 	service.txService = txService
 
-	service.userService = NewUserServiceImpl(repo.User(), txService)
+	userConfig := UserServiceConfig{
+		MinWithdrawTON:      cfg.Blockchain.TON.MinWithdrawTON,
+		MinWithdrawUSDT:     cfg.Blockchain.TON.MinWithdrawUSDT,
+		WithdrawFeeTON:      cfg.Blockchain.TON.WithdrawFeeTON,
+		WithdrawFeeUSDT:     cfg.Blockchain.TON.WithdrawFeeUSDT,
+		WithdrawLockMinutes: 5,
+	}
+	if cfg.Network == "base" {
+		userConfig.MinWithdrawUSDT = cfg.Blockchain.Base.MinWithdrawUSDC
+		userConfig.WithdrawFeeUSDT = cfg.Blockchain.Base.WithdrawFeeUSDC
+	}
+
+	service.userService = NewUserService(repo.User(), repo.Transaction(), tonService, service.blockchainProvider, userConfig)
 	service.gameService = NewGameService(repo.Game(), redisRepo, service.userService, tonService, commissionRate)
 	service.historyService = NewHistoryService(repo.History(), repo.Game(), repo.User(), repo.Lobby())
 
@@ -154,6 +167,8 @@ func createBlockchainProviderWithNetwork(network string, useMock bool, cfg confi
 		switch network {
 		case "evm", "ethereum", "eth":
 			return mock.NewMockProvider(blockchain.NetworkEthereum, []string{"ETH", "USDT", "USDC"})
+		case "base":
+			return mock.NewMockProvider(blockchain.NetworkBase, []string{"USDC"})
 		default: // ton
 			return mock.NewMockProvider(blockchain.NetworkTON, []string{"TON", "USDT"})
 		}
@@ -171,6 +186,18 @@ func createBlockchainProviderWithNetwork(network string, useMock bool, cfg confi
 			WithdrawFeeETH:        cfg.Ethereum.WithdrawFeeETH,
 			RequiredConfirmations: cfg.Ethereum.RequiredConfirmations,
 			USDTContractAddress:   cfg.Ethereum.USDTContractAddress,
+		})
+	case "base":
+		return base.NewProvider(base.Config{
+			RPCURL:                cfg.Base.RPCURL,
+			ChainID:               cfg.Base.ChainID,
+			MasterWallet:          cfg.Base.MasterWallet,
+			PrivateKey:            cfg.Base.PrivateKey,
+			MinWithdrawUSDC:       cfg.Base.MinWithdrawUSDC,
+			WithdrawFeeUSDC:       cfg.Base.WithdrawFeeUSDC,
+			RequiredConfirmations: cfg.Base.RequiredConfirmations,
+			USDCContractAddress:   cfg.Base.USDCContractAddress,
+			TokenDecimals:         cfg.Base.TokenDecimals,
 		})
 	default: // ton
 		return ton.NewTonProvider(ton.Config{

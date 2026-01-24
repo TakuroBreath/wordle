@@ -14,8 +14,17 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/consensys/gnark-crypto v0.18.0 // indirect
+	github.com/crate-crypto/go-eth-kzg v1.4.0 // indirect
+	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
+	github.com/ethereum/go-ethereum v1.16.8 // indirect
+	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
@@ -24,6 +33,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
+	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20220328075252-7dd334e3daae // indirect
@@ -34,6 +44,7 @@ require (
 	github.com/r3labs/sse/v2 v2.10.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/snksoft/crc v1.1.0 // indirect
+	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/tonkeeper/tongo v1.7.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect

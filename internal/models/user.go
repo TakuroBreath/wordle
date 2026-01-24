@@ -36,7 +36,7 @@ func (u *User) GetAvailableBalance(currency string) float64 {
 	switch currency {
 	case CurrencyTON:
 		return u.BalanceTon - u.PendingWithdrawal
-	case CurrencyUSDT:
+	case CurrencyUSDT, CurrencyUSDC:
 		return u.BalanceUsdt
 	default:
 		return 0

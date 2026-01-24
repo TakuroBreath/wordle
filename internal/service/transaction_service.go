@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/blockchain"
@@ -70,6 +72,10 @@ func (s *TransactionServiceImpl) CreateTransaction(ctx context.Context, tx *mode
 		models.TransactionTypeReward:     true,
 		models.TransactionTypeCommission: true, // Если есть комиссия
 		models.TransactionTypeRefund:     true, // Если есть возвраты
+		models.TransactionTypeGameDeposit:   true,
+		models.TransactionTypeGameRefund:    true,
+		models.TransactionTypeReserve:       true,
+		models.TransactionTypeReleaseReserve: true,
 	}
 	if !allowedTypes[tx.Type] {
 		return fmt.Errorf("invalid transaction type: %s", tx.Type)
@@ -228,28 +234,28 @@ func (s *TransactionServiceImpl) GetTransactionStats(ctx context.Context, userID
 				countDeposits++
 				if tx.Currency == models.CurrencyTON {
 					totalDepositsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT {
+				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 					totalDepositsUsdt += tx.Amount
 				}
 			case models.TransactionTypeWithdraw:
 				countWithdrawals++
 				if tx.Currency == models.CurrencyTON {
 					totalWithdrawalsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT {
+				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 					totalWithdrawalsUsdt += tx.Amount
 				}
 			case models.TransactionTypeBet:
 				countBets++
 				if tx.Currency == models.CurrencyTON {
 					totalBetsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT {
+				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 					totalBetsUsdt += tx.Amount
 				}
 			case models.TransactionTypeReward:
 				countRewards++
 				if tx.Currency == models.CurrencyTON {
 					totalRewardsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT {
+				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 					totalRewardsUsdt += tx.Amount
 				}
 			}
@@ -303,7 +309,7 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 	sufficientBalance := false
 	if currency == models.CurrencyTON && user.BalanceTon >= amount {
 		sufficientBalance = true
-	} else if currency == models.CurrencyUSDT && user.BalanceUsdt >= amount {
+	} else if (currency == models.CurrencyUSDT || currency == models.CurrencyUSDC) && user.BalanceUsdt >= amount {
 		sufficientBalance = true
 	}
 
@@ -311,7 +317,7 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 		return nil, fmt.Errorf("insufficient %s balance for withdrawal. Has: %.2f, Wants: %.2f", currency, func() float64 {
 			if currency == models.CurrencyTON {
 				return user.BalanceTon
-			} else {
+		} else {
 				return user.BalanceUsdt
 			}
 		}(), amount)
@@ -358,11 +364,81 @@ func (s *TransactionServiceImpl) ProcessDeposit(ctx context.Context, userID uint
 		return errors.New("deposit amount must be positive")
 	}
 
-	// Проверка существования пользователя (опционально, если UserID в транзакции достаточно)
-	// _, err := s.userRepo.GetByTelegramID(ctx, userID)
-	// if err != nil {
-	// 	return fmt.Errorf("user not found for deposit: %w", err)
-	// }
+	if s.blockchainProvider != nil && s.blockchainProvider.GetNetwork() == blockchain.NetworkBase {
+		if txHash == "" {
+			return errors.New("transaction hash cannot be empty")
+		}
+
+		exists, err := s.transactionRepo.ExistsByTxHash(ctx, txHash)
+		if err != nil {
+			return fmt.Errorf("failed to check transaction existence: %w", err)
+		}
+		if exists {
+			return errors.New("transaction already processed")
+		}
+
+		txInfo, err := s.blockchainProvider.VerifyTransaction(ctx, txHash)
+		if err != nil {
+			return fmt.Errorf("failed to verify transaction: %w", err)
+		}
+		if txInfo.Status != blockchain.TxStatusConfirmed {
+			return fmt.Errorf("transaction not confirmed, status: %s", txInfo.Status)
+		}
+
+		if currency == "" {
+			currency = txInfo.Currency
+		}
+		if txInfo.Currency != "" && currency != txInfo.Currency {
+			return fmt.Errorf("currency mismatch: expected %s, got %s", currency, txInfo.Currency)
+		}
+
+		if amount > 0 && math.Abs(amount-txInfo.Amount) > 0.000001 {
+			return fmt.Errorf("amount mismatch: expected %.6f, got %.6f", amount, txInfo.Amount)
+		}
+
+		user, err := s.userRepo.GetByTelegramID(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("failed to get user for deposit: %w", err)
+		}
+		if user.Wallet == "" {
+			return errors.New("user wallet is not linked")
+		}
+		if !strings.EqualFold(user.Wallet, txInfo.From) {
+			return fmt.Errorf("wallet mismatch: expected %s, got %s", user.Wallet, txInfo.From)
+		}
+
+		tx := &models.Transaction{
+			ID:          uuid.New(),
+			UserID:      userID,
+			Type:        models.TransactionTypeDeposit,
+			Amount:      txInfo.Amount,
+			Currency:    currency,
+			Status:      models.TransactionStatusCompleted,
+			TxHash:      txHash,
+			Network:     network,
+			FromAddress: txInfo.From,
+			ToAddress:   txInfo.To,
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+		}
+
+		if err := s.transactionRepo.Create(ctx, tx); err != nil {
+			return fmt.Errorf("failed to create deposit transaction: %w", err)
+		}
+
+		if currency == models.CurrencyTON {
+			return errors.New("TON deposits are not supported on Base network")
+		}
+		if err := s.userRepo.UpdateUsdtBalance(ctx, userID, txInfo.Amount); err != nil {
+			return fmt.Errorf("failed to update user balance: %w", err)
+		}
+		if err := s.userRepo.UpdateTotalDeposited(ctx, userID, txInfo.Amount); err != nil {
+			return fmt.Errorf("failed to update total deposited: %w", err)
+		}
+
+		metrics.RecordDeposit(currency, txInfo.Amount)
+		return nil
+	}
 
 	tx := &models.Transaction{
 		ID:        uuid.New(),
@@ -423,7 +499,7 @@ func (s *TransactionServiceImpl) ProcessReward(ctx context.Context, userID uint6
 	var errUpdateBalance error
 	if currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, userID, amount)
-	} else if currency == models.CurrencyUSDT {
+	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, userID, amount)
 	} else {
 		// Откатывать созданную транзакцию или нет - вопрос бизнес-логики.
@@ -469,7 +545,7 @@ func (s *TransactionServiceImpl) ConfirmDeposit(ctx context.Context, transaction
 	var errUpdateBalance error
 	if tx.Currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
-	} else if tx.Currency == models.CurrencyUSDT {
+	} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
 	} else {
 		tx.Status = models.TransactionStatusFailed
@@ -530,7 +606,7 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 	sufficientBalance := false
 	if tx.Currency == models.CurrencyTON && user.BalanceTon >= tx.Amount {
 		sufficientBalance = true
-	} else if tx.Currency == models.CurrencyUSDT && user.BalanceUsdt >= tx.Amount {
+	} else if (tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC) && user.BalanceUsdt >= tx.Amount {
 		sufficientBalance = true
 	}
 
@@ -543,9 +619,8 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 			func() float64 {
 				if tx.Currency == models.CurrencyTON {
 					return user.BalanceTon
-				} else {
-					return user.BalanceUsdt
 				}
+				return user.BalanceUsdt
 			}(),
 			tx.Amount)
 	}
@@ -554,7 +629,7 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 	var errUpdateBalance error
 	if tx.Currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, tx.UserID, -tx.Amount) // Отрицательная сумма для списания
-	} else if tx.Currency == models.CurrencyUSDT {
+	} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, -tx.Amount) // Отрицательная сумма для списания
 	} else {
 		tx.Status = models.TransactionStatusFailed
@@ -683,7 +758,7 @@ func (s *TransactionServiceImpl) GenerateWithdrawTransaction(ctx context.Context
 	var userBalance float64
 	if currency == models.CurrencyTON {
 		userBalance = user.BalanceTon
-	} else if currency == models.CurrencyUSDT {
+	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
 		userBalance = user.BalanceUsdt
 	}
 
@@ -760,7 +835,7 @@ func (s *TransactionServiceImpl) ProcessBlockchainDeposit(ctx context.Context, u
 	var balanceErr error
 	if currency == models.CurrencyTON {
 		balanceErr = s.userRepo.UpdateTonBalance(ctx, userID, amount)
-	} else if currency == models.CurrencyUSDT {
+	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
 		balanceErr = s.userRepo.UpdateUsdtBalance(ctx, userID, amount)
 	} else {
 		balanceErr = fmt.Errorf("unsupported currency: %s", currency)
@@ -823,6 +898,9 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 	if s.blockchainProvider == nil {
 		return errors.New("blockchain provider not configured")
 	}
+	if s.blockchainProvider.GetNetwork() == blockchain.NetworkTON {
+		return nil
+	}
 
 	// Получаем отложенные транзакции вывода
 	pendingWithdrawals, err := s.transactionRepo.GetByType(ctx, models.TransactionTypeWithdraw, 1000, 0)
@@ -835,43 +913,73 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 			continue
 		}
 
-		// Если есть хеш транзакции, проверяем статус в блокчейне
-		if tx.TxHash != "" {
-			status, err := s.blockchainProvider.GetTransactionStatus(ctx, tx.TxHash)
-			if err != nil {
-				fmt.Printf("ERROR: Failed to get transaction status for %s: %v\n", tx.TxHash, err)
+		// Если нет хеша, инициируем вывод через провайдер
+		if tx.TxHash == "" {
+			netAmount := math.Max(tx.Amount-tx.Fee, 0)
+			result, err := s.blockchainProvider.ProcessWithdraw(ctx, &blockchain.WithdrawRequest{
+				UserID:        tx.UserID,
+				Amount:        netAmount,
+				Currency:      tx.Currency,
+				ToAddress:     tx.ToAddress,
+				TransactionID: tx.ID.String(),
+			})
+			if err != nil || result == nil || !result.Success {
+				tx.Status = models.TransactionStatusFailed
+				tx.UpdatedAt = time.Now()
+				_ = s.transactionRepo.Update(ctx, tx)
+
+				if tx.Currency == models.CurrencyTON {
+					_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
+				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+					_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+				}
+				_ = s.userRepo.UpdatePendingWithdrawal(ctx, tx.UserID, -tx.Amount)
+				metrics.DecrementPendingWithdrawals()
 				continue
 			}
 
-			switch status {
-			case blockchain.TxStatusConfirmed:
-				// Транзакция подтверждена
-				tx.Status = models.TransactionStatusCompleted
-				tx.UpdatedAt = time.Now()
-				if err := s.transactionRepo.Update(ctx, tx); err != nil {
-					fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
-				}
-			case blockchain.TxStatusFailed:
-				// Транзакция провалилась - возвращаем средства
-				tx.Status = models.TransactionStatusFailed
-				tx.UpdatedAt = time.Now()
-				if err := s.transactionRepo.Update(ctx, tx); err != nil {
-					fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
-				}
-				// Возвращаем средства пользователю
-				if tx.Currency == models.CurrencyTON {
-					_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
-				} else if tx.Currency == models.CurrencyUSDT {
-					_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
-				}
-			default:
-				// Транзакция все еще pending
-				fmt.Printf("Monitoring pending withdrawal: %s, amount: %.6f %s, status: %s\n",
-					tx.ID, tx.Amount, tx.Currency, status)
+			tx.TxHash = result.TxHash
+			tx.Status = models.TransactionStatusConfirming
+			tx.UpdatedAt = time.Now()
+			if err := s.transactionRepo.Update(ctx, tx); err != nil {
+				fmt.Printf("ERROR: Failed to update transaction %s with tx hash: %v\n", tx.ID, err)
 			}
-		} else {
-			fmt.Printf("Pending withdrawal without tx hash: %s, amount: %.6f %s\n",
-				tx.ID, tx.Amount, tx.Currency)
+			continue
+		}
+
+		// Проверяем статус в блокчейне
+		status, err := s.blockchainProvider.GetTransactionStatus(ctx, tx.TxHash)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to get transaction status for %s: %v\n", tx.TxHash, err)
+			continue
+		}
+
+		switch status {
+		case blockchain.TxStatusConfirmed:
+			tx.Status = models.TransactionStatusCompleted
+			tx.UpdatedAt = time.Now()
+			if err := s.transactionRepo.Update(ctx, tx); err != nil {
+				fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
+			}
+			_ = s.userRepo.UpdatePendingWithdrawal(ctx, tx.UserID, -tx.Amount)
+			metrics.RecordWithdrawal(tx.Currency, tx.Amount)
+			metrics.DecrementPendingWithdrawals()
+		case blockchain.TxStatusFailed:
+			tx.Status = models.TransactionStatusFailed
+			tx.UpdatedAt = time.Now()
+			if err := s.transactionRepo.Update(ctx, tx); err != nil {
+				fmt.Printf("ERROR: Failed to update transaction %s status: %v\n", tx.ID, err)
+			}
+			if tx.Currency == models.CurrencyTON {
+				_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
+			} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+			}
+			_ = s.userRepo.UpdatePendingWithdrawal(ctx, tx.UserID, -tx.Amount)
+			metrics.DecrementPendingWithdrawals()
+		default:
+			fmt.Printf("Monitoring pending withdrawal: %s, amount: %.6f %s, status: %s\n",
+				tx.ID, tx.Amount, tx.Currency, status)
 		}
 	}
 

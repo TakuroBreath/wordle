@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/TakuroBreath/wordle/internal/api/middleware"
 	"github.com/TakuroBreath/wordle/internal/models"
@@ -14,16 +15,19 @@ import (
 type TransactionHandler struct {
 	transactionService models.TransactionService
 	userService        models.UserService
+	network            string
 }
 
 // NewTransactionHandler создает новый экземпляр TransactionHandler
 func NewTransactionHandler(
 	transactionService models.TransactionService,
 	userService models.UserService,
+	network string,
 ) *TransactionHandler {
 	return &TransactionHandler{
 		transactionService: transactionService,
 		userService:        userService,
+		network:            network,
 	}
 }
 
@@ -246,33 +250,39 @@ func (h *TransactionHandler) CreateDepositTransaction(c *gin.Context) {
 		return
 	}
 
-	// Проверка валидности валюты
-	if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be TON or USDT"})
+	isBase := strings.EqualFold(h.network, "base")
+	if isBase {
+		if input.Currency != models.CurrencyUSDC {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be USDC"})
+			return
+		}
+	} else {
+		if input.Currency != models.CurrencyTON && input.Currency != models.CurrencyUSDT {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid currency, must be TON or USDT"})
+			return
+		}
+	}
+
+	if err := h.transactionService.ProcessDeposit(c, userID, input.Amount, input.Currency, input.TxHash, input.Network); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Создаем транзакцию пополнения
-	tx := &models.Transaction{
-		UserID:      userID,
-		Type:        models.TransactionTypeDeposit,
-		Amount:      input.Amount,
-		Currency:    input.Currency,
-		Status:      models.TransactionStatusPending,
-		Description: "Deposit via blockchain",
-		TxHash:      input.TxHash,
-		Network:     input.Network,
-	}
-
-	if err := h.transactionService.CreateTransaction(c, tx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	tx, err := h.transactionService.GetTransactionByTxHash(c, input.TxHash)
+	if err != nil {
+		c.JSON(http.StatusCreated, gin.H{
+			"message":  "Deposit transaction processed",
+			"currency": input.Currency,
+			"tx_hash":  input.TxHash,
+			"network":  input.Network,
+		})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"id":         tx.ID,
 		"status":     tx.Status,
-		"message":    "Deposit transaction created successfully. Will be processed shortly.",
+		"message":    "Deposit transaction processed",
 		"amount":     tx.Amount,
 		"currency":   tx.Currency,
 		"tx_hash":    tx.TxHash,

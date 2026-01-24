@@ -9,8 +9,10 @@ blockchain/
 ├── provider.go         # Основной интерфейс BlockchainProvider
 ├── mock/
 │   └── provider.go     # Mock-реализация для тестирования
-└── ton/
-    └── provider.go     # Реализация для TON блокчейна
+├── ton/
+│   └── provider.go     # Реализация для TON блокчейна
+└── base/
+    └── provider.go     # Реализация для Base (USDC)
 ```
 
 ## Интерфейс BlockchainProvider
@@ -62,7 +64,7 @@ type BlockchainProvider interface {
 
 ## Добавление нового блокчейна
 
-Для добавления поддержки нового блокчейна (например, Ethereum):
+Для добавления поддержки нового блокчейна (например, Ethereum/Base):
 
 ### 1. Создайте новый пакет
 
@@ -140,6 +142,13 @@ func createBlockchainProvider(cfg config.BlockchainConfig) blockchain.Blockchain
             RPCURL:       cfg.Ethereum.RPCURL,
             ChainID:      cfg.Ethereum.ChainID,
             MasterWallet: cfg.Ethereum.MasterWallet,
+        })
+    case "base":
+        return base.NewProvider(base.Config{
+            RPCURL:              cfg.Base.RPCURL,
+            ChainID:             cfg.Base.ChainID,
+            MasterWallet:        cfg.Base.MasterWallet,
+            USDCContractAddress: cfg.Base.USDCContractAddress,
         })
     case "mock":
         fallthrough

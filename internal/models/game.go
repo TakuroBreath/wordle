@@ -34,7 +34,7 @@ type Game struct {
 	MaxBet           float64   `json:"max_bet" db:"max_bet"`                         // Максимальная ставка
 	RewardMultiplier float64   `json:"reward_multiplier" db:"reward_multiplier"`     // Мультипликатор награды
 	DepositAmount    float64   `json:"deposit_amount" db:"deposit_amount"`           // Размер депозита (должен быть >= max_bet * multiplier)
-	Currency         string    `json:"currency" db:"currency"`                       // Валюта (TON или USDT)
+	Currency         string    `json:"currency" db:"currency"`                       // Валюта (TON, USDT или USDC)
 	RewardPoolTon    float64   `json:"reward_pool_ton" db:"reward_pool_ton"`         // Пул наград в TON
 	RewardPoolUsdt   float64   `json:"reward_pool_usdt" db:"reward_pool_usdt"`       // Пул наград в USDT
 	ReservedAmount   float64   `json:"reserved_amount" db:"reserved_amount"`         // Зарезервированная сумма для активных игр

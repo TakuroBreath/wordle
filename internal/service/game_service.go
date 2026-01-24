@@ -107,7 +107,7 @@ func (s *GameServiceImpl) CreateGame(ctx context.Context, game *models.Game) err
 	}
 
 	// Валидация валюты
-	if game.Currency != models.CurrencyTON && game.Currency != models.CurrencyUSDT {
+	if game.Currency != models.CurrencyTON && game.Currency != models.CurrencyUSDT && game.Currency != models.CurrencyUSDC {
 		return fmt.Errorf("invalid currency: %s", game.Currency)
 	}
 
