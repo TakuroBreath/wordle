@@ -19,6 +19,7 @@ type JobServiceImpl struct {
 	transactionService models.TransactionService
 	gameService        models.GameService
 	userService        models.UserService
+	tonService         models.TONService
 	blockchainProvider blockchain.BlockchainProvider
 	tonapiClient       *tonapi.Client
 }
@@ -29,6 +30,7 @@ func NewJobService(
 	transactionService models.TransactionService,
 	gameService models.GameService,
 	userService models.UserService,
+	tonService models.TONService,
 ) models.JobService {
 	token := os.Getenv("TONAPI_KEY")
 
@@ -48,6 +50,7 @@ func NewJobService(
 		transactionService: transactionService,
 		gameService:        gameService,
 		userService:        userService,
+		tonService:         tonService,
 		tonapiClient:       client,
 	}
 }
@@ -58,9 +61,10 @@ func NewJobServiceWithBlockchain(
 	transactionService models.TransactionService,
 	gameService models.GameService,
 	userService models.UserService,
+	tonService models.TONService,
 	blockchainProvider blockchain.BlockchainProvider,
 ) models.JobService {
-	service := NewJobService(lobbyService, transactionService, gameService, userService).(*JobServiceImpl)
+	service := NewJobService(lobbyService, transactionService, gameService, userService, tonService).(*JobServiceImpl)
 	service.blockchainProvider = blockchainProvider
 	return service
 }
@@ -99,13 +103,18 @@ func (s *JobServiceImpl) ProcessPendingTransactions(ctx context.Context) error {
 
 // MonitorWalletTransactions отслеживает транзакции кошелька и активирует неактивные игры
 func (s *JobServiceImpl) MonitorWalletTransactions(ctx context.Context) error {
-	// Если клиент не инициализирован, пропускаем
-	if s.tonapiClient == nil {
+	// Если клиент не инициализирован или tonService отсутствует, пропускаем
+	if s.tonapiClient == nil || s.tonService == nil {
+		return nil
+	}
+
+	masterWallet := s.tonService.GetMasterWalletAddress()
+	if masterWallet == "" {
 		return nil
 	}
 
 	transactions, err := s.tonapiClient.GetBlockchainAccountTransactions(context.Background(), tonapi.GetBlockchainAccountTransactionsParams{
-		AccountID: "UQC9L3EkJxGMEYKCOhN3KQGCLh1i51ohTpO1NV21BbMHxTyE",
+		AccountID: masterWallet,
 		Limit:     tonapi.NewOptInt32(10),
 	})
 	if err != nil {

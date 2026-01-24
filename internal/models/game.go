@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -146,4 +147,64 @@ func (g *Game) UnmarshalJSON(data []byte) error {
 
 	g.MaxTries = maxTriesVal
 	return nil
+}
+
+// CheckWord проверяет слово и возвращает результат []int
+// 0 - буквы нет, 1 - буква есть, не на месте, 2 - буква есть и на месте
+func CheckWord(word, target string) []int {
+	wordRunes := []rune(strings.ToLower(word))
+	targetRunes := []rune(strings.ToLower(target))
+
+	if len(wordRunes) != len(targetRunes) {
+		return nil
+	}
+
+	result := make([]int, len(targetRunes))
+	targetUsed := make([]bool, len(targetRunes))
+	wordUsed := make([]bool, len(wordRunes))
+
+	// Первый проход: точные совпадения (зелёные)
+	for i := 0; i < len(wordRunes); i++ {
+		if wordRunes[i] == targetRunes[i] {
+			result[i] = 2
+			targetUsed[i] = true
+			wordUsed[i] = true
+		}
+	}
+
+	// Второй проход: буквы есть, но не на месте (жёлтые)
+	for i := 0; i < len(wordRunes); i++ {
+		if wordUsed[i] {
+			continue
+		}
+		for j := 0; j < len(targetRunes); j++ {
+			if !targetUsed[j] && wordRunes[i] == targetRunes[j] {
+				result[i] = 1
+				targetUsed[j] = true
+				break
+			}
+		}
+	}
+
+	return result
+}
+
+// IsWordCorrect проверяет, правильно ли угадано слово
+func IsWordCorrect(word, target string) bool {
+	return strings.ToLower(word) == strings.ToLower(target)
+}
+
+// CalculateReward вычисляет награду с учётом комиссии
+func CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int, commissionRate float64) float64 {
+	if triesUsed <= 0 || maxTries <= 0 || triesUsed > maxTries {
+		return 0
+	}
+
+	// Валовая награда (без бонусов)
+	grossReward := bet * multiplier
+
+	// Вычитаем комиссию (чистая награда игрока)
+	netReward := grossReward * (1 - commissionRate)
+
+	return netReward
 }

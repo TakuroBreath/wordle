@@ -1,6 +1,9 @@
 package service
 
 import (
+	"context"
+	"log"
+
 	"github.com/TakuroBreath/wordle/internal/blockchain"
 	"github.com/TakuroBreath/wordle/internal/blockchain/ethereum"
 	"github.com/TakuroBreath/wordle/internal/blockchain/mock"
@@ -80,9 +83,33 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 	// Инициализация блокчейн провайдера
 	service.blockchainProvider = createBlockchainProviderWithNetwork(cfg.Network, cfg.UseMockProvider, cfg.Blockchain)
 
-	// Инициализация TON сервиса (может быть nil при использовании mock)
-	// TON сервис создается отдельно и может быть передан извне при необходимости
+	// Инициализация TON сервиса
 	var tonService models.TONService = nil
+	if cfg.Network == "ton" && !cfg.UseMockProvider {
+		tonSvc, err := ton.NewService(ton.ServiceConfig{
+			APIEndpoint:           cfg.Blockchain.TON.APIEndpoint,
+			APIKey:                cfg.Blockchain.TON.APIKey,
+			MasterWalletAddress:   cfg.Blockchain.TON.MasterWallet,
+			MasterWalletSeed:      cfg.Blockchain.TON.MasterWalletSeed,
+			Testnet:               cfg.Blockchain.TON.Testnet,
+			MinWithdrawTON:        cfg.Blockchain.TON.MinWithdrawTON,
+			MinWithdrawUSDT:       cfg.Blockchain.TON.MinWithdrawUSDT,
+			WithdrawFeeTON:        cfg.Blockchain.TON.WithdrawFeeTON,
+			RequiredConfirmations: cfg.Blockchain.TON.RequiredConfirmations,
+			USDTMasterAddress:     cfg.Blockchain.TON.USDTMasterAddress,
+		})
+		if err != nil {
+			log.Printf("WARNING: Failed to create TON service: %v", err)
+		} else {
+			// Подключаемся к сети в фоновом режиме
+			go func() {
+				if err := tonSvc.Connect(context.Background()); err != nil {
+					log.Printf("ERROR: Failed to connect to TON network: %v", err)
+				}
+			}()
+			tonService = tonSvc
+		}
+	}
 	service.tonService = tonService
 
 	// Инициализация сервисов - сначала создаем базовые сервисы
@@ -114,6 +141,7 @@ func NewServiceWithConfig(repo repository.Repository, redisRepo repository.Redis
 		service.txService,
 		service.gameService,
 		service.userService,
+		tonService,
 	)
 
 	return service

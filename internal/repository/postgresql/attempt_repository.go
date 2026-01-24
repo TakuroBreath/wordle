@@ -3,12 +3,12 @@ package postgresql
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // AttemptRepository представляет собой реализацию репозитория для работы с попытками
@@ -42,20 +42,14 @@ func (r *AttemptRepository) Create(ctx context.Context, attempt *models.Attempt)
 	}
 	attempt.UpdatedAt = now
 
-	// Преобразование результата в JSON
-	resultJSON, err := json.Marshal(attempt.Result)
-	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	_, err = r.db.ExecContext(
+	_, err := r.db.ExecContext(
 		ctx,
 		query,
 		attempt.ID,
 		attempt.GameID,
 		attempt.UserID,
 		attempt.Word,
-		resultJSON,
+		pq.Array(attempt.Result),
 		attempt.CreatedAt,
 		attempt.UpdatedAt,
 	)
@@ -76,14 +70,13 @@ func (r *AttemptRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 	`
 
 	var attempt models.Attempt
-	var resultJSON []byte
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&attempt.ID,
 		&attempt.GameID,
 		&attempt.UserID,
 		&attempt.Word,
-		&resultJSON,
+		pq.Array(&attempt.Result),
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -93,11 +86,6 @@ func (r *AttemptRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.
 			return nil, fmt.Errorf("attempt not found")
 		}
 		return nil, fmt.Errorf("failed to get attempt: %w", err)
-	}
-
-	// Преобразование JSON обратно в массив
-	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 	}
 
 	return &attempt, nil
@@ -121,24 +109,19 @@ func (r *AttemptRepository) GetByGameID(ctx context.Context, gameID uuid.UUID) (
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -169,24 +152,19 @@ func (r *AttemptRepository) GetByUserID(ctx context.Context, userID uint64) ([]*
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -217,24 +195,19 @@ func (r *AttemptRepository) GetByGameAndUser(ctx context.Context, gameID uuid.UU
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -287,14 +260,13 @@ func (r *AttemptRepository) GetLastAttempt(ctx context.Context, gameID uuid.UUID
 	`
 
 	var attempt models.Attempt
-	var resultJSON []byte
 
 	err := r.db.QueryRowContext(ctx, query, gameID, userID).Scan(
 		&attempt.ID,
 		&attempt.GameID,
 		&attempt.UserID,
 		&attempt.Word,
-		&resultJSON,
+		pq.Array(&attempt.Result),
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -304,10 +276,6 @@ func (r *AttemptRepository) GetLastAttempt(ctx context.Context, gameID uuid.UUID
 			return nil, fmt.Errorf("no attempts found")
 		}
 		return nil, fmt.Errorf("failed to get last attempt: %w", err)
-	}
-
-	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 	}
 
 	return &attempt, nil
@@ -331,24 +299,19 @@ func (r *AttemptRepository) GetSuccessfulAttempts(ctx context.Context, gameID uu
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -379,24 +342,19 @@ func (r *AttemptRepository) GetAttemptsByDateRange(ctx context.Context, startDat
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -465,24 +423,19 @@ func (r *AttemptRepository) GetByLobbyID(ctx context.Context, lobbyID uuid.UUID,
 	var attempts []*models.Attempt
 	for rows.Next() {
 		var attempt models.Attempt
-		var resultJSON []byte
 
 		err := rows.Scan(
 			&attempt.ID,
 			&attempt.GameID,
 			&attempt.UserID,
 			&attempt.Word,
-			&resultJSON,
+			pq.Array(&attempt.Result),
 			&attempt.CreatedAt,
 			&attempt.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan attempt: %w", err)
-		}
-
-		if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 		}
 
 		attempts = append(attempts, &attempt)
@@ -505,14 +458,13 @@ func (r *AttemptRepository) GetByWord(ctx context.Context, lobbyID uuid.UUID, wo
 	`
 
 	var attempt models.Attempt
-	var resultJSON []byte
 
 	err := r.db.QueryRowContext(ctx, query, lobbyID, word).Scan(
 		&attempt.ID,
 		&attempt.GameID,
 		&attempt.UserID,
 		&attempt.Word,
-		&resultJSON,
+		pq.Array(&attempt.Result),
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -522,10 +474,6 @@ func (r *AttemptRepository) GetByWord(ctx context.Context, lobbyID uuid.UUID, wo
 			return nil, fmt.Errorf("attempt not found")
 		}
 		return nil, fmt.Errorf("failed to get attempt: %w", err)
-	}
-
-	if err := json.Unmarshal(resultJSON, &attempt.Result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 	}
 
 	return &attempt, nil
@@ -559,18 +507,13 @@ func (r *AttemptRepository) Update(ctx context.Context, attempt *models.Attempt)
 
 	attempt.UpdatedAt = time.Now()
 
-	resultJSON, err := json.Marshal(attempt.Result)
-	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	_, err = r.db.ExecContext(
+	_, err := r.db.ExecContext(
 		ctx,
 		query,
 		attempt.GameID,
 		attempt.UserID,
 		attempt.Word,
-		resultJSON,
+		pq.Array(attempt.Result),
 		attempt.UpdatedAt,
 		attempt.ID,
 	)

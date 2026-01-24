@@ -20,6 +20,7 @@ type GameService interface {
 	
 	// Получение списков
 	GetActiveGames(ctx context.Context, limit, offset int) ([]*Game, error)
+	GetActiveGamesForUser(ctx context.Context, userID uint64, limit, offset int) ([]*Game, error)
 	GetPendingGames(ctx context.Context, limit, offset int) ([]*Game, error)
 	SearchGames(ctx context.Context, minBet, maxBet float64, difficulty string, limit, offset int) ([]*Game, error)
 	GetGameStats(ctx context.Context, gameID uuid.UUID) (map[string]any, error)
@@ -37,7 +38,7 @@ type GameService interface {
 	GetPaymentInfo(ctx context.Context, gameID uuid.UUID) (*PaymentInfo, error)
 	
 	// Проверка слова (утилиты)
-	CheckWord(word, target string) string
+	CheckWord(word, target string) []int
 	IsWordCorrect(word, target string) bool
 	CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int) float64
 }

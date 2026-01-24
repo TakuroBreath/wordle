@@ -252,6 +252,20 @@ func (m *MockGameRepository) GetByCreator(ctx context.Context, creatorID uint64,
 	return games, nil
 }
 
+func (m *MockGameRepository) GetActiveExcludingPlayed(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var games []*models.Game
+	// In a real mock we'd need access to lobbies to filter, but for now we'll just exclude own games
+	// and simulate exclusion.
+	for _, game := range m.games {
+		if game.Status == models.GameStatusActive && game.CreatorID != userID {
+			games = append(games, game)
+		}
+	}
+	return games, nil
+}
+
 func (m *MockGameRepository) GetActive(ctx context.Context, limit, offset int) ([]*models.Game, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

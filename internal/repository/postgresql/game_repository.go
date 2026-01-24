@@ -197,13 +197,79 @@ func (r *GameRepository) GetActive(ctx context.Context, limit, offset int) ([]*m
 		status, created_at, updated_at
 	FROM games
 	WHERE status = 'active'
-	ORDER BY created_at DESC
+	ORDER BY RANDOM()
 	LIMIT $1 OFFSET $2
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		log.Error("Failed to get active games", zap.Error(err))
+		return nil, fmt.Errorf("failed to get active games: %w", err)
+	}
+	defer rows.Close()
+
+	var games []*models.Game
+	for rows.Next() {
+		var game models.Game
+
+		err := rows.Scan(
+			&game.ID,
+			&game.CreatorID,
+			&game.Word,
+			&game.Length,
+			&game.Difficulty,
+			&game.MaxTries,
+			&game.Title,
+			&game.Description,
+			&game.MinBet,
+			&game.MaxBet,
+			&game.RewardMultiplier,
+			&game.Currency,
+			&game.RewardPoolTon,
+			&game.RewardPoolUsdt,
+			&game.Status,
+			&game.CreatedAt,
+			&game.UpdatedAt,
+		)
+
+		if err != nil {
+			log.Error("Failed to scan game", zap.Error(err))
+			return nil, fmt.Errorf("failed to scan game: %w", err)
+		}
+
+		games = append(games, &game)
+	}
+
+	if err = rows.Err(); err != nil {
+		log.Error("Error iterating active games", zap.Error(err))
+		return nil, fmt.Errorf("error iterating active games: %w", err)
+	}
+
+	return games, nil
+}
+
+// GetActiveExcludingPlayed получает активные игры, исключая те, в которые пользователь уже играл или которые он создал
+func (r *GameRepository) GetActiveExcludingPlayed(ctx context.Context, userID uint64, limit, offset int) ([]*models.Game, error) {
+	log := r.logger.With(zap.String("method", "GetActiveExcludingPlayed"), zap.Uint64("user_id", userID))
+
+	query := `
+	SELECT g.id, g.creator_id, g.word, g.length, g.difficulty, g.max_tries, g.title, g.description,
+		g.min_bet, g.max_bet, g.reward_multiplier, g.currency, g.reward_pool_ton, g.reward_pool_usdt,
+		g.status, g.created_at, g.updated_at
+	FROM games g
+	WHERE g.status = 'active'
+	AND g.creator_id != $1
+	AND NOT EXISTS (
+		SELECT 1 FROM lobbies l
+		WHERE l.game_id = g.id AND l.user_id = $1
+	)
+	ORDER BY RANDOM()
+	LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, userID, limit, offset)
+	if err != nil {
+		log.Error("Failed to get active games excluding played", zap.Error(err))
 		return nil, fmt.Errorf("failed to get active games: %w", err)
 	}
 	defer rows.Close()

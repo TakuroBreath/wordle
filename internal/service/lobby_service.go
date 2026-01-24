@@ -469,11 +469,13 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 			log.Error("Failed to credit reward", zap.Error(err))
 		}
 
-		// Списываем из пула игры
+		// Списываем полную награду из пула игры
+		// Важно списывать полную сумму (включая комиссию), чтобы она не оставалась в пуле создателя
+		grossReward := reward / (1 - s.commissionRate)
 		if game.Currency == models.CurrencyTON {
-			game.RewardPoolTon -= reward
+			game.RewardPoolTon -= grossReward
 		} else {
-			game.RewardPoolUsdt -= reward
+			game.RewardPoolUsdt -= grossReward
 		}
 
 		// Создаём транзакцию награды
@@ -507,9 +509,16 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 			zap.Float64("bet", lobby.BetAmount),
 			zap.String("reason", finalStatus))
 
-		// Ставка остаётся в пуле игры (уже была добавлена при создании)
-		// Комиссия берётся с потенциальной награды
+		// Комиссия берётся со ставки
 		commission := lobby.BetAmount * s.commissionRate
+		netBet := lobby.BetAmount - commission
+
+		// Ставка (за вычетом комиссии) добавляется в пул игры
+		if game.Currency == models.CurrencyTON {
+			game.RewardPoolTon += netBet
+		} else {
+			game.RewardPoolUsdt += netBet
+		}
 
 		// Начисляем комиссию сервису (в реальности - отдельный кошелёк)
 		log.Info("Commission earned", zap.Float64("amount", commission))
@@ -579,41 +588,7 @@ func (s *LobbyServiceImpl) FinishLobby(ctx context.Context, lobbyID uuid.UUID, s
 
 // CheckWord проверяет слово и возвращает результат []int
 func (s *LobbyServiceImpl) CheckWord(word, target string) []int {
-	wordRunes := []rune(strings.ToLower(word))
-	targetRunes := []rune(strings.ToLower(target))
-
-	if len(wordRunes) != len(targetRunes) {
-		return nil
-	}
-
-	result := make([]int, len(targetRunes))
-	targetUsed := make([]bool, len(targetRunes))
-	wordUsed := make([]bool, len(wordRunes))
-
-	// Первый проход: точные совпадения (зелёные)
-	for i := 0; i < len(wordRunes); i++ {
-		if wordRunes[i] == targetRunes[i] {
-			result[i] = 2
-			targetUsed[i] = true
-			wordUsed[i] = true
-		}
-	}
-
-	// Второй проход: буквы есть, но не на месте (жёлтые)
-	for i := 0; i < len(wordRunes); i++ {
-		if wordUsed[i] {
-			continue
-		}
-		for j := 0; j < len(targetRunes); j++ {
-			if !targetUsed[j] && wordRunes[i] == targetRunes[j] {
-				result[i] = 1
-				targetUsed[j] = true
-				break
-			}
-		}
-	}
-
-	return result
+	return models.CheckWord(word, target)
 }
 
 // isWordCorrect проверяет, является ли результат полным совпадением
@@ -628,25 +603,10 @@ func (s *LobbyServiceImpl) isWordCorrect(result []int) bool {
 
 // IsWordCorrect проверяет, правильно ли угадано слово
 func (s *LobbyServiceImpl) IsWordCorrect(word, target string) bool {
-	return strings.ToLower(word) == strings.ToLower(target)
+	return models.IsWordCorrect(word, target)
 }
 
 // CalculateReward вычисляет награду с учётом комиссии
 func (s *LobbyServiceImpl) CalculateReward(bet float64, multiplier float64, triesUsed, maxTries int) float64 {
-	if triesUsed <= 0 || maxTries <= 0 || triesUsed > maxTries {
-		return 0
-	}
-
-	// Базовая награда
-	baseReward := bet * multiplier
-
-	// Бонус за быстрое угадывание
-	triesBonus := 1.0 + (float64(maxTries-triesUsed)/float64(maxTries))*0.5
-
-	grossReward := baseReward * triesBonus
-
-	// Вычитаем комиссию 5%
-	netReward := grossReward * (1 - s.commissionRate)
-
-	return netReward
+	return models.CalculateReward(bet, multiplier, triesUsed, maxTries, s.commissionRate)
 }

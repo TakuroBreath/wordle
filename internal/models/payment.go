@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,7 +60,7 @@ func GeneratePaymentComment(paymentType string, shortID string) string {
 		prefix = "LB" // Lobby Bet
 	}
 	timestamp := time.Now().Unix()
-	return prefix + "_" + shortID + "_" + string(rune(timestamp))
+	return fmt.Sprintf("%s_%s_%d", prefix, shortID, timestamp)
 }
 
 // ParsePaymentComment парсит комментарий платежа

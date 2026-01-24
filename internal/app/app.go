@@ -11,6 +11,7 @@ import (
 	"github.com/TakuroBreath/wordle/internal/repository/memory"
 	"github.com/TakuroBreath/wordle/internal/repository/postgresql"
 	"github.com/TakuroBreath/wordle/internal/service"
+	"github.com/TakuroBreath/wordle/internal/worker"
 	"github.com/TakuroBreath/wordle/pkg/metrics"
 )
 
@@ -84,6 +85,32 @@ func (a *App) Run() error {
 			time.Minute*5, // Проверка ожидающих транзакций каждые 5 минут
 		)
 	}()
+
+	// Запуск блокчейн воркера (только если используется TON и не в режиме mock)
+	if a.cfg.Network == "ton" && !a.cfg.UseMockProvider && a.services.TONService() != nil {
+		pollInterval := time.Duration(a.cfg.Blockchain.TON.WorkerPollInterval) * time.Second
+		if pollInterval <= 0 {
+			pollInterval = 10 * time.Second
+		}
+
+		bcWorker := worker.NewBlockchainWorker(
+			a.services.TONService(),
+			a.repos.Game(),
+			a.repos.Lobby(),
+			a.repos.User(),
+			a.repos.Transaction(),
+			worker.WorkerConfig{
+				PollInterval:        pollInterval,
+				MasterWalletAddress: a.services.TONService().GetMasterWalletAddress(),
+			},
+		)
+
+		go func() {
+			if err := bcWorker.Start(ctx); err != nil {
+				log.Printf("ERROR: Failed to start blockchain worker: %v", err)
+			}
+		}()
+	}
 
 	// Запуск HTTP-сервера
 	return a.server.Run()
