@@ -100,6 +100,17 @@ func (m *MockUserRepository) UpdateUsdtBalance(ctx context.Context, telegramID u
 	return models.ErrUserNotFound
 }
 
+func (m *MockUserRepository) UpdateUsdcBalance(ctx context.Context, telegramID uint64, amount float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if user, ok := m.users[telegramID]; ok {
+		user.BalanceUsdc += amount
+		user.UpdatedAt = time.Now()
+		return nil
+	}
+	return models.ErrUserNotFound
+}
+
 func (m *MockUserRepository) GetTopUsers(ctx context.Context, limit int) ([]*models.User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

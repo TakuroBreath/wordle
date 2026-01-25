@@ -115,8 +115,10 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 	// Списываем ставку с баланса
 	if game.Currency == models.CurrencyTON {
 		err = s.userService.UpdateTonBalance(ctx, lobby.UserID, -lobby.BetAmount)
-	} else {
+	} else if game.Currency == models.CurrencyUSDT {
 		err = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, -lobby.BetAmount)
+	} else if game.Currency == models.CurrencyUSDC {
+		err = s.userService.UpdateUsdcBalance(ctx, lobby.UserID, -lobby.BetAmount)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to deduct bet: %w", err)
@@ -128,8 +130,10 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 		// Возвращаем деньги
 		if game.Currency == models.CurrencyTON {
 			_ = s.userService.UpdateTonBalance(ctx, lobby.UserID, lobby.BetAmount)
-		} else {
+		} else if game.Currency == models.CurrencyUSDT {
 			_ = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, lobby.BetAmount)
+		} else if game.Currency == models.CurrencyUSDC {
+			_ = s.userService.UpdateUsdcBalance(ctx, lobby.UserID, lobby.BetAmount)
 		}
 		return fmt.Errorf("failed to reserve funds: %w", err)
 	}
@@ -176,8 +180,10 @@ func (s *LobbyServiceImpl) CreateLobby(ctx context.Context, lobby *models.Lobby)
 		_ = s.gameRepo.DecrementReservedAmount(ctx, game.ID, potentialReward)
 		if game.Currency == models.CurrencyTON {
 			_ = s.userService.UpdateTonBalance(ctx, lobby.UserID, lobby.BetAmount)
-		} else {
+		} else if game.Currency == models.CurrencyUSDT {
 			_ = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, lobby.BetAmount)
+		} else if game.Currency == models.CurrencyUSDC {
+			_ = s.userService.UpdateUsdcBalance(ctx, lobby.UserID, lobby.BetAmount)
 		}
 		return fmt.Errorf("failed to create lobby: %w", err)
 	}
@@ -463,7 +469,11 @@ func (s *LobbyServiceImpl) handleLobbyFinish(ctx context.Context, lobby *models.
 		if game.Currency == models.CurrencyTON {
 			err = s.userService.UpdateTonBalance(ctx, lobby.UserID, reward)
 		} else {
-			err = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, reward)
+			if lobby.Currency == models.CurrencyUSDT {
+				err = s.userService.UpdateUsdtBalance(ctx, lobby.UserID, reward)
+			} else if lobby.Currency == models.CurrencyUSDC {
+				err = s.userService.UpdateUsdcBalance(ctx, lobby.UserID, reward)
+			}
 		}
 		if err != nil {
 			log.Error("Failed to credit reward", zap.Error(err))

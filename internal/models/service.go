@@ -58,6 +58,7 @@ type UserService interface {
 	// Управление балансом
 	UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error
 	UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error
+	UpdateUsdcBalance(ctx context.Context, telegramID uint64, amount float64) error
 	ValidateBalance(ctx context.Context, telegramID uint64, requiredAmount float64, currency string) (bool, error)
 
 	// Статистика
@@ -185,6 +186,7 @@ type BlockchainWorkerService interface {
 // AuthService определяет методы для аутентификации и авторизации пользователей
 type AuthService interface {
 	InitAuth(ctx context.Context, initData string) (string, error)
+	InitBaseAuth(ctx context.Context, payload BaseAuthPayload) (string, error)
 	VerifyAuth(ctx context.Context, tokenString string) (*User, error)
 	GenerateToken(ctx context.Context, user User) (string, error)
 	ValidateToken(ctx context.Context, tokenString string) (*User, error)

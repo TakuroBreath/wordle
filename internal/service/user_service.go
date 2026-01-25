@@ -75,10 +75,14 @@ func (s *UserServiceImpl) CreateUser(ctx context.Context, user *models.User) err
 		return errors.New("user with this Telegram ID already exists")
 	}
 
+	if user.AuthProvider == "" {
+		user.AuthProvider = models.AuthProviderTelegram
+	}
 	user.Wins = 0
 	user.Losses = 0
 	user.BalanceTon = 0.0
 	user.BalanceUsdt = 0.0
+	user.BalanceUsdc = 0.0
 	user.PendingWithdrawal = 0.0
 	user.TotalDeposited = 0.0
 	user.TotalWithdrawn = 0.0
@@ -195,6 +199,14 @@ func (s *UserServiceImpl) UpdateUsdtBalance(ctx context.Context, telegramID uint
 	return s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
 }
 
+// UpdateUsdcBalance обновляет баланс пользователя в USDC
+func (s *UserServiceImpl) UpdateUsdcBalance(ctx context.Context, telegramID uint64, amount float64) error {
+	if telegramID == 0 {
+		return errors.New("telegram ID must be valid")
+	}
+	return s.repo.UpdateUsdcBalance(ctx, telegramID, amount)
+}
+
 // GetTopUsers получает список топ-пользователей
 func (s *UserServiceImpl) GetTopUsers(ctx context.Context, limit int) ([]*models.User, error) {
 	if limit <= 0 {
@@ -224,6 +236,7 @@ func (s *UserServiceImpl) GetUserStats(ctx context.Context, telegramID uint64) (
 		"losses":             user.Losses,
 		"balance_ton":        user.BalanceTon,
 		"balance_usdt":       user.BalanceUsdt,
+		"balance_usdc":       user.BalanceUsdc,
 		"pending_withdrawal": user.PendingWithdrawal,
 		"total_deposited":    user.TotalDeposited,
 		"total_withdrawn":    user.TotalWithdrawn,
@@ -268,8 +281,10 @@ func (s *UserServiceImpl) ValidateBalance(ctx context.Context, telegramID uint64
 	switch currency {
 	case models.CurrencyTON:
 		return user.GetAvailableBalance(models.CurrencyTON) >= requiredAmount, nil
-	case models.CurrencyUSDT, models.CurrencyUSDC:
+	case models.CurrencyUSDT:
 		return user.GetAvailableBalance(models.CurrencyUSDT) >= requiredAmount, nil
+	case models.CurrencyUSDC:
+		return user.GetAvailableBalance(models.CurrencyUSDC) >= requiredAmount, nil
 	default:
 		return false, fmt.Errorf("unknown currency: %s", currency)
 	}
@@ -303,7 +318,10 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 
 	// Определяем минимальную сумму и комиссию
 	var minWithdraw, fee float64
-	if currency == models.CurrencyTON {
+	if s.blockchainProvider != nil {
+		minWithdraw = s.blockchainProvider.GetMinWithdrawAmount(currency)
+		fee = s.blockchainProvider.GetWithdrawFee(currency, amount)
+	} else if currency == models.CurrencyTON {
 		minWithdraw = s.minWithdrawTON
 		fee = s.withdrawFeeTON
 	} else {
@@ -370,8 +388,12 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 		if err := s.repo.UpdateTonBalance(ctx, telegramID, -amount); err != nil {
 			return nil, fmt.Errorf("failed to deduct balance: %w", err)
 		}
-	} else {
+	} else if currency == models.CurrencyUSDT {
 		if err := s.repo.UpdateUsdtBalance(ctx, telegramID, -amount); err != nil {
+			return nil, fmt.Errorf("failed to deduct balance: %w", err)
+		}
+	} else if currency == models.CurrencyUSDC {
+		if err := s.repo.UpdateUsdcBalance(ctx, telegramID, -amount); err != nil {
 			return nil, fmt.Errorf("failed to deduct balance: %w", err)
 		}
 	}
@@ -381,8 +403,10 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 		// Откатываем
 		if currency == models.CurrencyTON {
 			_ = s.repo.UpdateTonBalance(ctx, telegramID, amount)
-		} else {
+		} else if currency == models.CurrencyUSDT {
 			_ = s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
+		} else if currency == models.CurrencyUSDC {
+			_ = s.repo.UpdateUsdcBalance(ctx, telegramID, amount)
 		}
 		return nil, fmt.Errorf("failed to set pending withdrawal: %w", err)
 	}
@@ -413,8 +437,10 @@ func (s *UserServiceImpl) RequestWithdraw(ctx context.Context, telegramID uint64
 		_ = s.repo.UpdatePendingWithdrawal(ctx, telegramID, -amount)
 		if currency == models.CurrencyTON {
 			_ = s.repo.UpdateTonBalance(ctx, telegramID, amount)
-		} else {
+		} else if currency == models.CurrencyUSDT {
 			_ = s.repo.UpdateUsdtBalance(ctx, telegramID, amount)
+		} else if currency == models.CurrencyUSDC {
+			_ = s.repo.UpdateUsdcBalance(ctx, telegramID, amount)
 		}
 		return nil, fmt.Errorf("failed to create transaction: %w", err)
 	}

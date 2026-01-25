@@ -22,9 +22,9 @@ const (
 
 // AuthConfig конфигурация авторизации
 type AuthConfig struct {
-	Enabled      bool
-	BotToken     string
-	DefaultUser  *models.User // Пользователь по умолчанию для dev режима
+	Enabled     bool
+	BotToken    string
+	DefaultUser *models.User // Пользователь по умолчанию для dev режима
 }
 
 // AuthMiddleware представляет middleware для аутентификации
@@ -54,12 +54,14 @@ func NewAuthMiddlewareWithConfig(authService models.AuthService, config AuthConf
 // DefaultDevUser возвращает пользователя по умолчанию для dev режима
 func DefaultDevUser() *models.User {
 	return &models.User{
-		TelegramID:  12345678,
-		Username:    "dev_user",
-		FirstName:   "Dev",
-		LastName:    "User",
-		BalanceTon:  100.0,
-		BalanceUsdt: 100.0,
+		TelegramID:   12345678,
+		Username:     "dev_user",
+		FirstName:    "Dev",
+		LastName:     "User",
+		AuthProvider: models.AuthProviderTelegram,
+		BalanceTon:   100.0,
+		BalanceUsdt:  100.0,
+		BalanceUsdc:  100.0,
 	}
 }
 

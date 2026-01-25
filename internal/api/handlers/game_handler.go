@@ -127,19 +127,19 @@ func (h *GameHandler) CreateGame(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if err := h.userService.UpdateUsdtBalance(c, userID, -depositAmount); err != nil {
+		if err := h.userService.UpdateUsdcBalance(c, userID, -depositAmount); err != nil {
 			_ = h.gameService.DeleteGame(c, game.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reserve deposit from balance"})
 			return
 		}
 		if err := h.gameService.AddToRewardPool(c, game.ID, depositAmount); err != nil {
-			_ = h.userService.UpdateUsdtBalance(c, userID, depositAmount)
+			_ = h.userService.UpdateUsdcBalance(c, userID, depositAmount)
 			_ = h.gameService.DeleteGame(c, game.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fund reward pool"})
 			return
 		}
 		if err := h.gameService.ActivateGame(c, game.ID); err != nil {
-			_ = h.userService.UpdateUsdtBalance(c, userID, depositAmount)
+			_ = h.userService.UpdateUsdcBalance(c, userID, depositAmount)
 			_ = h.gameService.DeleteGame(c, game.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to activate game"})
 			return
@@ -794,8 +794,10 @@ func (h *GameHandler) AddToRewardPool(c *gin.Context) {
 	// Списываем с баланса
 	if game.Currency == models.CurrencyTON {
 		err = h.userService.UpdateTonBalance(c, userID, -input.Amount)
-	} else {
+	} else if game.Currency == models.CurrencyUSDT {
 		err = h.userService.UpdateUsdtBalance(c, userID, -input.Amount)
+	} else if game.Currency == models.CurrencyUSDC {
+		err = h.userService.UpdateUsdcBalance(c, userID, -input.Amount)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update balance"})
@@ -807,8 +809,10 @@ func (h *GameHandler) AddToRewardPool(c *gin.Context) {
 		// Возвращаем деньги
 		if game.Currency == models.CurrencyTON {
 			_ = h.userService.UpdateTonBalance(c, userID, input.Amount)
-		} else {
+		} else if game.Currency == models.CurrencyUSDT {
 			_ = h.userService.UpdateUsdtBalance(c, userID, input.Amount)
+		} else if game.Currency == models.CurrencyUSDC {
+			_ = h.userService.UpdateUsdcBalance(c, userID, input.Amount)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

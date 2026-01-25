@@ -47,19 +47,28 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"telegram_id":        user.TelegramID,
+		"auth_provider":      user.AuthProvider,
 		"username":           user.Username,
 		"first_name":         user.FirstName,
 		"last_name":          user.LastName,
 		"wallet":             user.Wallet,
 		"balance_ton":        user.BalanceTon,
 		"balance_usdt":       user.BalanceUsdt,
-		"balance_usdc":       user.BalanceUsdt,
+		"balance_usdc":       user.BalanceUsdc,
 		"pending_withdrawal": user.PendingWithdrawal,
 		"wins":               user.Wins,
 		"losses":             user.Losses,
 		"total_deposited":    user.TotalDeposited,
 		"total_withdrawn":    user.TotalWithdrawn,
 		"can_withdraw":       user.CanWithdraw(),
+		"base": gin.H{
+			"fid":                  user.BaseFID,
+			"username":             user.BaseUsername,
+			"display_name":         user.BaseDisplayName,
+			"pfp_url":              user.BasePfpURL,
+			"custody_address":      user.BaseCustodyAddr,
+			"smart_wallet_address": user.BaseSmartWallet,
+		},
 	})
 }
 
@@ -106,7 +115,7 @@ func (h *UserHandler) GetUserBalance(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"balance_ton":        user.BalanceTon,
 		"balance_usdt":       user.BalanceUsdt,
-		"balance_usdc":       user.BalanceUsdt,
+		"balance_usdc":       user.BalanceUsdc,
 		"available_ton":      user.GetAvailableBalance(models.CurrencyTON),
 		"available_usdt":     user.GetAvailableBalance(models.CurrencyUSDT),
 		"available_usdc":     user.GetAvailableBalance(models.CurrencyUSDC),
@@ -115,7 +124,7 @@ func (h *UserHandler) GetUserBalance(c *gin.Context) {
 	})
 }
 
-// ConnectWallet подключает TON кошелёк пользователя
+// ConnectWallet подключает кошелёк пользователя
 func (h *UserHandler) ConnectWallet(c *gin.Context) {
 	userID, exists := middleware.GetCurrentUserID(c)
 	if !exists {

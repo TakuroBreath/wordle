@@ -66,15 +66,15 @@ func (s *TransactionServiceImpl) CreateTransaction(ctx context.Context, tx *mode
 	// }
 
 	allowedTypes := map[string]bool{
-		models.TransactionTypeDeposit:    true,
-		models.TransactionTypeWithdraw:   true,
-		models.TransactionTypeBet:        true,
-		models.TransactionTypeReward:     true,
-		models.TransactionTypeCommission: true, // Если есть комиссия
-		models.TransactionTypeRefund:     true, // Если есть возвраты
-		models.TransactionTypeGameDeposit:   true,
-		models.TransactionTypeGameRefund:    true,
-		models.TransactionTypeReserve:       true,
+		models.TransactionTypeDeposit:        true,
+		models.TransactionTypeWithdraw:       true,
+		models.TransactionTypeBet:            true,
+		models.TransactionTypeReward:         true,
+		models.TransactionTypeCommission:     true, // Если есть комиссия
+		models.TransactionTypeRefund:         true, // Если есть возвраты
+		models.TransactionTypeGameDeposit:    true,
+		models.TransactionTypeGameRefund:     true,
+		models.TransactionTypeReserve:        true,
 		models.TransactionTypeReleaseReserve: true,
 	}
 	if !allowedTypes[tx.Type] {
@@ -209,22 +209,27 @@ func (s *TransactionServiceImpl) GetTransactionStats(ctx context.Context, userID
 	stats := make(map[string]interface{})
 	stats["balance_ton"] = user.BalanceTon
 	stats["balance_usdt"] = user.BalanceUsdt
+	stats["balance_usdc"] = user.BalanceUsdc
 	stats["total_transactions"] = len(transactions)
 
 	totalDepositsTon := 0.0
 	totalDepositsUsdt := 0.0
+	totalDepositsUsdc := 0.0
 	countDeposits := 0
 
 	totalWithdrawalsTon := 0.0
 	totalWithdrawalsUsdt := 0.0
+	totalWithdrawalsUsdc := 0.0
 	countWithdrawals := 0
 
 	totalBetsTon := 0.0
 	totalBetsUsdt := 0.0
+	totalBetsUsdc := 0.0
 	countBets := 0
 
 	totalRewardsTon := 0.0
 	totalRewardsUsdt := 0.0
+	totalRewardsUsdc := 0.0
 	countRewards := 0
 
 	for _, tx := range transactions {
@@ -234,29 +239,37 @@ func (s *TransactionServiceImpl) GetTransactionStats(ctx context.Context, userID
 				countDeposits++
 				if tx.Currency == models.CurrencyTON {
 					totalDepositsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				} else if tx.Currency == models.CurrencyUSDT {
 					totalDepositsUsdt += tx.Amount
+				} else if tx.Currency == models.CurrencyUSDC {
+					totalDepositsUsdc += tx.Amount
 				}
 			case models.TransactionTypeWithdraw:
 				countWithdrawals++
 				if tx.Currency == models.CurrencyTON {
 					totalWithdrawalsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				} else if tx.Currency == models.CurrencyUSDT {
 					totalWithdrawalsUsdt += tx.Amount
+				} else if tx.Currency == models.CurrencyUSDC {
+					totalWithdrawalsUsdc += tx.Amount
 				}
 			case models.TransactionTypeBet:
 				countBets++
 				if tx.Currency == models.CurrencyTON {
 					totalBetsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				} else if tx.Currency == models.CurrencyUSDT {
 					totalBetsUsdt += tx.Amount
+				} else if tx.Currency == models.CurrencyUSDC {
+					totalBetsUsdc += tx.Amount
 				}
 			case models.TransactionTypeReward:
 				countRewards++
 				if tx.Currency == models.CurrencyTON {
 					totalRewardsTon += tx.Amount
-				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				} else if tx.Currency == models.CurrencyUSDT {
 					totalRewardsUsdt += tx.Amount
+				} else if tx.Currency == models.CurrencyUSDC {
+					totalRewardsUsdc += tx.Amount
 				}
 			}
 		}
@@ -266,24 +279,29 @@ func (s *TransactionServiceImpl) GetTransactionStats(ctx context.Context, userID
 		"count":      countDeposits,
 		"total_ton":  totalDepositsTon,
 		"total_usdt": totalDepositsUsdt,
+		"total_usdc": totalDepositsUsdc,
 	}
 	stats["withdrawals"] = map[string]interface{}{
 		"count":      countWithdrawals,
 		"total_ton":  totalWithdrawalsTon,
 		"total_usdt": totalWithdrawalsUsdt,
+		"total_usdc": totalWithdrawalsUsdc,
 	}
 	stats["bets"] = map[string]interface{}{
 		"count":      countBets,
 		"total_ton":  totalBetsTon,
 		"total_usdt": totalBetsUsdt,
+		"total_usdc": totalBetsUsdc,
 	}
 	stats["rewards"] = map[string]interface{}{
 		"count":      countRewards,
 		"total_ton":  totalRewardsTon,
 		"total_usdt": totalRewardsUsdt,
+		"total_usdc": totalRewardsUsdc,
 	}
 	stats["net_profit_ton"] = totalRewardsTon - totalBetsTon
 	stats["net_profit_usdt"] = totalRewardsUsdt - totalBetsUsdt
+	stats["net_profit_usdc"] = totalRewardsUsdc - totalBetsUsdc
 
 	return stats, nil
 }
@@ -307,18 +325,26 @@ func (s *TransactionServiceImpl) ProcessWithdraw(ctx context.Context, userID uin
 
 	// Проверка баланса в зависимости от валюты
 	sufficientBalance := false
-	if currency == models.CurrencyTON && user.BalanceTon >= amount {
-		sufficientBalance = true
-	} else if (currency == models.CurrencyUSDT || currency == models.CurrencyUSDC) && user.BalanceUsdt >= amount {
-		sufficientBalance = true
+	switch currency {
+	case models.CurrencyTON:
+		sufficientBalance = user.BalanceTon >= amount
+	case models.CurrencyUSDT:
+		sufficientBalance = user.BalanceUsdt >= amount
+	case models.CurrencyUSDC:
+		sufficientBalance = user.BalanceUsdc >= amount
 	}
 
 	if !sufficientBalance {
 		return nil, fmt.Errorf("insufficient %s balance for withdrawal. Has: %.2f, Wants: %.2f", currency, func() float64 {
-			if currency == models.CurrencyTON {
+			switch currency {
+			case models.CurrencyTON:
 				return user.BalanceTon
-		} else {
+			case models.CurrencyUSDT:
 				return user.BalanceUsdt
+			case models.CurrencyUSDC:
+				return user.BalanceUsdc
+			default:
+				return 0
 			}
 		}(), amount)
 	}
@@ -429,8 +455,16 @@ func (s *TransactionServiceImpl) ProcessDeposit(ctx context.Context, userID uint
 		if currency == models.CurrencyTON {
 			return errors.New("TON deposits are not supported on Base network")
 		}
-		if err := s.userRepo.UpdateUsdtBalance(ctx, userID, txInfo.Amount); err != nil {
-			return fmt.Errorf("failed to update user balance: %w", err)
+		if currency == models.CurrencyUSDT {
+			if err := s.userRepo.UpdateUsdtBalance(ctx, userID, txInfo.Amount); err != nil {
+				return fmt.Errorf("failed to update user balance: %w", err)
+			}
+		} else if currency == models.CurrencyUSDC {
+			if err := s.userRepo.UpdateUsdcBalance(ctx, userID, txInfo.Amount); err != nil {
+				return fmt.Errorf("failed to update user balance: %w", err)
+			}
+		} else {
+			return fmt.Errorf("unsupported currency for Base deposit: %s", currency)
 		}
 		if err := s.userRepo.UpdateTotalDeposited(ctx, userID, txInfo.Amount); err != nil {
 			return fmt.Errorf("failed to update total deposited: %w", err)
@@ -499,8 +533,10 @@ func (s *TransactionServiceImpl) ProcessReward(ctx context.Context, userID uint6
 	var errUpdateBalance error
 	if currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, userID, amount)
-	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
+	} else if currency == models.CurrencyUSDT {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, userID, amount)
+	} else if currency == models.CurrencyUSDC {
+		errUpdateBalance = s.userRepo.UpdateUsdcBalance(ctx, userID, amount)
 	} else {
 		// Откатывать созданную транзакцию или нет - вопрос бизнес-логики.
 		// Можно пометить ее как failed или удалить.
@@ -545,8 +581,10 @@ func (s *TransactionServiceImpl) ConfirmDeposit(ctx context.Context, transaction
 	var errUpdateBalance error
 	if tx.Currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
-	} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+	} else if tx.Currency == models.CurrencyUSDT {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+	} else if tx.Currency == models.CurrencyUSDC {
+		errUpdateBalance = s.userRepo.UpdateUsdcBalance(ctx, tx.UserID, tx.Amount)
 	} else {
 		tx.Status = models.TransactionStatusFailed
 		tx.Description = fmt.Sprintf("Failed due to unknown currency: %s", tx.Currency)
@@ -604,10 +642,13 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 	}
 
 	sufficientBalance := false
-	if tx.Currency == models.CurrencyTON && user.BalanceTon >= tx.Amount {
-		sufficientBalance = true
-	} else if (tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC) && user.BalanceUsdt >= tx.Amount {
-		sufficientBalance = true
+	switch tx.Currency {
+	case models.CurrencyTON:
+		sufficientBalance = user.BalanceTon >= tx.Amount
+	case models.CurrencyUSDT:
+		sufficientBalance = user.BalanceUsdt >= tx.Amount
+	case models.CurrencyUSDC:
+		sufficientBalance = user.BalanceUsdc >= tx.Amount
 	}
 
 	if !sufficientBalance {
@@ -617,10 +658,16 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 		return fmt.Errorf("insufficient %s balance for withdrawal %s at confirmation. Has: %.2f, Wants: %.2f",
 			tx.Currency, transactionID,
 			func() float64 {
-				if tx.Currency == models.CurrencyTON {
+				switch tx.Currency {
+				case models.CurrencyTON:
 					return user.BalanceTon
+				case models.CurrencyUSDT:
+					return user.BalanceUsdt
+				case models.CurrencyUSDC:
+					return user.BalanceUsdc
+				default:
+					return 0
 				}
-				return user.BalanceUsdt
 			}(),
 			tx.Amount)
 	}
@@ -629,8 +676,10 @@ func (s *TransactionServiceImpl) ConfirmWithdrawal(ctx context.Context, transact
 	var errUpdateBalance error
 	if tx.Currency == models.CurrencyTON {
 		errUpdateBalance = s.userRepo.UpdateTonBalance(ctx, tx.UserID, -tx.Amount) // Отрицательная сумма для списания
-	} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+	} else if tx.Currency == models.CurrencyUSDT {
 		errUpdateBalance = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, -tx.Amount) // Отрицательная сумма для списания
+	} else if tx.Currency == models.CurrencyUSDC {
+		errUpdateBalance = s.userRepo.UpdateUsdcBalance(ctx, tx.UserID, -tx.Amount) // Отрицательная сумма для списания
 	} else {
 		tx.Status = models.TransactionStatusFailed
 		tx.Description = fmt.Sprintf("Failed due to unknown currency: %s", tx.Currency)
@@ -758,8 +807,10 @@ func (s *TransactionServiceImpl) GenerateWithdrawTransaction(ctx context.Context
 	var userBalance float64
 	if currency == models.CurrencyTON {
 		userBalance = user.BalanceTon
-	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
+	} else if currency == models.CurrencyUSDT {
 		userBalance = user.BalanceUsdt
+	} else if currency == models.CurrencyUSDC {
+		userBalance = user.BalanceUsdc
 	}
 
 	transactionData := map[string]any{
@@ -835,8 +886,10 @@ func (s *TransactionServiceImpl) ProcessBlockchainDeposit(ctx context.Context, u
 	var balanceErr error
 	if currency == models.CurrencyTON {
 		balanceErr = s.userRepo.UpdateTonBalance(ctx, userID, amount)
-	} else if currency == models.CurrencyUSDT || currency == models.CurrencyUSDC {
+	} else if currency == models.CurrencyUSDT {
 		balanceErr = s.userRepo.UpdateUsdtBalance(ctx, userID, amount)
+	} else if currency == models.CurrencyUSDC {
+		balanceErr = s.userRepo.UpdateUsdcBalance(ctx, userID, amount)
 	} else {
 		balanceErr = fmt.Errorf("unsupported currency: %s", currency)
 	}
@@ -930,8 +983,10 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 
 				if tx.Currency == models.CurrencyTON {
 					_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
-				} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+				} else if tx.Currency == models.CurrencyUSDT {
 					_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+				} else if tx.Currency == models.CurrencyUSDC {
+					_ = s.userRepo.UpdateUsdcBalance(ctx, tx.UserID, tx.Amount)
 				}
 				_ = s.userRepo.UpdatePendingWithdrawal(ctx, tx.UserID, -tx.Amount)
 				metrics.DecrementPendingWithdrawals()
@@ -972,8 +1027,10 @@ func (s *TransactionServiceImpl) MonitorPendingWithdrawals(ctx context.Context) 
 			}
 			if tx.Currency == models.CurrencyTON {
 				_ = s.userRepo.UpdateTonBalance(ctx, tx.UserID, tx.Amount)
-			} else if tx.Currency == models.CurrencyUSDT || tx.Currency == models.CurrencyUSDC {
+			} else if tx.Currency == models.CurrencyUSDT {
 				_ = s.userRepo.UpdateUsdtBalance(ctx, tx.UserID, tx.Amount)
+			} else if tx.Currency == models.CurrencyUSDC {
+				_ = s.userRepo.UpdateUsdcBalance(ctx, tx.UserID, tx.Amount)
 			}
 			_ = s.userRepo.UpdatePendingWithdrawal(ctx, tx.UserID, -tx.Amount)
 			metrics.DecrementPendingWithdrawals()

@@ -35,8 +35,12 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		zap.String("last_name", user.LastName))
 
 	query := `
-		INSERT INTO users (telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO users (
+			telegram_id, username, first_name, last_name, auth_provider,
+			base_fid, base_username, base_display_name, base_pfp_url, base_custody_address, base_smart_wallet_address,
+			wallet, balance_ton, balance_usdt, balance_usdc, wins, losses, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
 
 	now := time.Now()
@@ -51,7 +55,8 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		zap.String("last_name", user.LastName),
 		zap.String("wallet", user.Wallet),
 		zap.Float64("balance_ton", user.BalanceTon),
-		zap.Float64("balance_usdt", user.BalanceUsdt))
+		zap.Float64("balance_usdt", user.BalanceUsdt),
+		zap.Float64("balance_usdc", user.BalanceUsdc))
 
 	_, err := r.db.ExecContext(
 		ctx,
@@ -60,9 +65,17 @@ func (r *UserRepository) Create(ctx context.Context, user *models.User) error {
 		user.Username,
 		user.FirstName,
 		user.LastName,
+		user.AuthProvider,
+		user.BaseFID,
+		user.BaseUsername,
+		user.BaseDisplayName,
+		user.BasePfpURL,
+		user.BaseCustodyAddr,
+		user.BaseSmartWallet,
 		user.Wallet,
 		user.BalanceTon,
 		user.BalanceUsdt,
+		user.BalanceUsdc,
 		user.Wins,
 		user.Losses,
 		user.CreatedAt,
@@ -85,7 +98,9 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64)
 	log.Info("Getting user by Telegram ID")
 
 	query := `
-		SELECT telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at
+		SELECT telegram_id, username, first_name, last_name, auth_provider,
+			base_fid, base_username, base_display_name, base_pfp_url, base_custody_address, base_smart_wallet_address,
+			wallet, balance_ton, balance_usdt, balance_usdc, wins, losses, created_at, updated_at
 		FROM users
 		WHERE telegram_id = $1
 	`
@@ -99,9 +114,17 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID uint64)
 		&user.Username,
 		&user.FirstName,
 		&user.LastName,
+		&user.AuthProvider,
+		&user.BaseFID,
+		&user.BaseUsername,
+		&user.BaseDisplayName,
+		&user.BasePfpURL,
+		&user.BaseCustodyAddr,
+		&user.BaseSmartWallet,
 		&user.Wallet,
 		&user.BalanceTon,
 		&user.BalanceUsdt,
+		&user.BalanceUsdc,
 		&user.Wins,
 		&user.Losses,
 		&user.CreatedAt,
@@ -131,8 +154,12 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 
 	query := `
 		UPDATE users
-		SET username = $1, first_name = $2, last_name = $3, wallet = $4, balance_ton = $5, balance_usdt = $6, wins = $7, losses = $8, updated_at = $9
-		WHERE telegram_id = $10
+		SET username = $1, first_name = $2, last_name = $3, auth_provider = $4,
+			base_fid = $5, base_username = $6, base_display_name = $7, base_pfp_url = $8,
+			base_custody_address = $9, base_smart_wallet_address = $10,
+			wallet = $11, balance_ton = $12, balance_usdt = $13, balance_usdc = $14,
+			wins = $15, losses = $16, updated_at = $17
+		WHERE telegram_id = $18
 	`
 
 	user.UpdatedAt = time.Now()
@@ -150,9 +177,17 @@ func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 		user.Username,
 		user.FirstName,
 		user.LastName,
+		user.AuthProvider,
+		user.BaseFID,
+		user.BaseUsername,
+		user.BaseDisplayName,
+		user.BasePfpURL,
+		user.BaseCustodyAddr,
+		user.BaseSmartWallet,
 		user.Wallet,
 		user.BalanceTon,
 		user.BalanceUsdt,
+		user.BalanceUsdc,
 		user.Wins,
 		user.Losses,
 		user.UpdatedAt,
@@ -203,7 +238,9 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 	log.Info("Getting user by username")
 
 	query := `
-		SELECT telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at
+		SELECT telegram_id, username, first_name, last_name, auth_provider,
+			base_fid, base_username, base_display_name, base_pfp_url, base_custody_address, base_smart_wallet_address,
+			wallet, balance_ton, balance_usdt, balance_usdc, wins, losses, created_at, updated_at
 		FROM users
 		WHERE username = $1
 	`
@@ -217,9 +254,17 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 		&user.Username,
 		&user.FirstName,
 		&user.LastName,
+		&user.AuthProvider,
+		&user.BaseFID,
+		&user.BaseUsername,
+		&user.BaseDisplayName,
+		&user.BasePfpURL,
+		&user.BaseCustodyAddr,
+		&user.BaseSmartWallet,
 		&user.Wallet,
 		&user.BalanceTon,
 		&user.BalanceUsdt,
+		&user.BalanceUsdc,
 		&user.Wins,
 		&user.Losses,
 		&user.CreatedAt,
@@ -273,7 +318,9 @@ func (r *UserRepository) GetTopUsers(ctx context.Context, limit int) ([]*models.
 	log.Info("Getting top users", zap.Int("limit", limit))
 
 	query := `
-		SELECT telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt, wins, losses, created_at, updated_at
+		SELECT telegram_id, username, first_name, last_name, auth_provider,
+			base_fid, base_username, base_display_name, base_pfp_url, base_custody_address, base_smart_wallet_address,
+			wallet, balance_ton, balance_usdt, balance_usdc, wins, losses, created_at, updated_at
 		FROM users
 		ORDER BY wins DESC, balance_ton DESC
 		LIMIT $1
@@ -297,9 +344,17 @@ func (r *UserRepository) GetTopUsers(ctx context.Context, limit int) ([]*models.
 			&user.Username,
 			&user.FirstName,
 			&user.LastName,
+			&user.AuthProvider,
+			&user.BaseFID,
+			&user.BaseUsername,
+			&user.BaseDisplayName,
+			&user.BasePfpURL,
+			&user.BaseCustodyAddr,
+			&user.BaseSmartWallet,
 			&user.Wallet,
 			&user.BalanceTon,
 			&user.BalanceUsdt,
+			&user.BalanceUsdc,
 			&user.Wins,
 			&user.Losses,
 			&user.CreatedAt,
@@ -450,10 +505,34 @@ func (r *UserRepository) UpdateUsdtBalance(ctx context.Context, telegramID uint6
 	return nil
 }
 
+// UpdateUsdcBalance обновляет баланс USDC пользователя
+func (r *UserRepository) UpdateUsdcBalance(ctx context.Context, telegramID uint64, amount float64) error {
+	log := r.logger.With(zap.String("method", "UpdateUsdcBalance"),
+		zap.Uint64("telegram_id", telegramID))
+	log.Info("Updating USDC balance", zap.Float64("amount", amount))
+
+	query := `UPDATE users SET balance_usdc = balance_usdc + $1, updated_at = NOW() WHERE telegram_id = $2`
+
+	log.Debug("Executing SQL query", zap.String("query", query))
+
+	_, err := r.db.ExecContext(ctx, query, amount, telegramID)
+	if err != nil {
+		log.Error("Failed to update USDC balance", zap.Error(err))
+		return fmt.Errorf("failed to update USDC balance: %w", err)
+	}
+
+	log.Info("USDC balance updated successfully",
+		zap.Uint64("telegram_id", telegramID),
+		zap.Float64("amount", amount))
+	return nil
+}
+
 // GetByWallet получает пользователя по адресу кошелька
 func (r *UserRepository) GetByWallet(ctx context.Context, wallet string) (*models.User, error) {
 	query := `
-		SELECT telegram_id, username, first_name, last_name, wallet, balance_ton, balance_usdt,
+		SELECT telegram_id, username, first_name, last_name, auth_provider,
+			base_fid, base_username, base_display_name, base_pfp_url, base_custody_address, base_smart_wallet_address,
+			wallet, balance_ton, balance_usdt, balance_usdc,
 			COALESCE(pending_withdrawal, 0), withdrawal_lock_until, wins, losses,
 			COALESCE(total_deposited, 0), COALESCE(total_withdrawn, 0), created_at, updated_at
 		FROM users
@@ -467,9 +546,17 @@ func (r *UserRepository) GetByWallet(ctx context.Context, wallet string) (*model
 		&user.Username,
 		&user.FirstName,
 		&user.LastName,
+		&user.AuthProvider,
+		&user.BaseFID,
+		&user.BaseUsername,
+		&user.BaseDisplayName,
+		&user.BasePfpURL,
+		&user.BaseCustodyAddr,
+		&user.BaseSmartWallet,
 		&user.Wallet,
 		&user.BalanceTon,
 		&user.BalanceUsdt,
+		&user.BalanceUsdc,
 		&user.PendingWithdrawal,
 		&withdrawalLockUntil,
 		&user.Wins,

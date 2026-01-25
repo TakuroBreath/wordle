@@ -293,8 +293,10 @@ func (s *GameServiceImpl) DeleteGame(ctx context.Context, id uuid.UUID) error {
 
 		if game.Currency == models.CurrencyTON {
 			err = s.userService.UpdateTonBalance(ctx, game.CreatorID, returnAmount)
-		} else {
+		} else if game.Currency == models.CurrencyUSDT {
 			err = s.userService.UpdateUsdtBalance(ctx, game.CreatorID, returnAmount)
+		} else if game.Currency == models.CurrencyUSDC {
+			err = s.userService.UpdateUsdcBalance(ctx, game.CreatorID, returnAmount)
 		}
 
 		if err != nil {

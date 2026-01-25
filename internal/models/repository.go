@@ -10,11 +10,11 @@ import (
 
 // Определяем ошибки для репозитория
 var (
-	ErrLobbyNotFound       = errors.New("lobby not found")
-	ErrUserNotFound        = errors.New("user not found")
-	ErrGameNotFound        = errors.New("game not found")
-	ErrTransactionNotFound = errors.New("transaction not found")
-	ErrInsufficientFunds   = errors.New("insufficient funds")
+	ErrLobbyNotFound        = errors.New("lobby not found")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrGameNotFound         = errors.New("game not found")
+	ErrTransactionNotFound  = errors.New("transaction not found")
+	ErrInsufficientFunds    = errors.New("insufficient funds")
 	ErrDuplicateTransaction = errors.New("duplicate transaction")
 )
 
@@ -52,6 +52,7 @@ type UserRepository interface {
 	UpdateWallet(ctx context.Context, telegramID uint64, wallet string) error
 	UpdateTonBalance(ctx context.Context, telegramID uint64, amount float64) error
 	UpdateUsdtBalance(ctx context.Context, telegramID uint64, amount float64) error
+	UpdateUsdcBalance(ctx context.Context, telegramID uint64, amount float64) error
 	UpdatePendingWithdrawal(ctx context.Context, telegramID uint64, amount float64) error
 	SetWithdrawalLock(ctx context.Context, telegramID uint64, lockUntil time.Time) error
 	GetTopUsers(ctx context.Context, limit int) ([]*User, error)
