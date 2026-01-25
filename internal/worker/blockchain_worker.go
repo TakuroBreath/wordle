@@ -14,16 +14,16 @@ import (
 
 // BlockchainWorker обрабатывает транзакции из блокчейна
 type BlockchainWorker struct {
-	tonService         models.TONService
-	gameRepo           models.GameRepository
-	lobbyRepo          models.LobbyRepository
-	userRepo           models.UserRepository
-	transactionRepo    models.TransactionRepository
-	
+	tonService      models.TONService
+	gameRepo        models.GameRepository
+	lobbyRepo       models.LobbyRepository
+	userRepo        models.UserRepository
+	transactionRepo models.TransactionRepository
+
 	masterWalletAddress string
 	pollInterval        time.Duration
 	lastProcessedLt     int64
-	
+
 	mu       sync.RWMutex
 	running  bool
 	stopChan chan struct{}
@@ -430,6 +430,10 @@ func (w *BlockchainWorker) processLobbyBet(ctx context.Context, gameShortID stri
 			if err := w.userRepo.UpdateUsdtBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 				return fmt.Errorf("failed to credit user balance: %w", err)
 			}
+		} else if game.Currency == models.CurrencyUSDC {
+			if err := w.userRepo.UpdateUsdcBalance(ctx, user.TelegramID, tx.Amount); err != nil {
+				return fmt.Errorf("failed to credit user balance: %w", err)
+			}
 		}
 		return nil
 	}
@@ -499,7 +503,7 @@ func (w *BlockchainWorker) processUserDeposit(ctx context.Context, tx *models.Bl
 	if err != nil {
 		w.logger.Warn("User not found by wallet, deposit will be credited when wallet is linked",
 			zap.String("wallet", tx.FromAddress))
-		
+
 		// Сохраняем транзакцию как pending
 		dbTx := &models.Transaction{
 			UserID:       0,
@@ -525,8 +529,12 @@ func (w *BlockchainWorker) processUserDeposit(ctx context.Context, tx *models.Bl
 		if err := w.userRepo.UpdateTonBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 			return fmt.Errorf("failed to update user balance: %w", err)
 		}
-	} else {
+	} else if tx.Currency == models.CurrencyUSDT {
 		if err := w.userRepo.UpdateUsdtBalance(ctx, user.TelegramID, tx.Amount); err != nil {
+			return fmt.Errorf("failed to update user balance: %w", err)
+		}
+	} else if tx.Currency == models.CurrencyUSDC {
+		if err := w.userRepo.UpdateUsdcBalance(ctx, user.TelegramID, tx.Amount); err != nil {
 			return fmt.Errorf("failed to update user balance: %w", err)
 		}
 	}
@@ -659,7 +667,7 @@ func ExtractGameShortIDFromComment(comment string) string {
 	if !IsValidPaymentComment(comment) {
 		return ""
 	}
-	
+
 	rest := comment[3:]
 	idx := strings.Index(rest, "_")
 	if idx == -1 {

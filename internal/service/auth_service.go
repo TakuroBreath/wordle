@@ -17,6 +17,9 @@ import (
 	"github.com/TakuroBreath/wordle/internal/models"
 	"github.com/TakuroBreath/wordle/internal/repository"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	initdata "github.com/telegram-mini-apps/init-data-golang"
 	"go.uber.org/zap"
 )
@@ -115,10 +118,11 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initDataStr string) (str
 				zap.String("username", data.User.Username))
 
 			newUser := &models.User{
-				TelegramID: telegramID,
-				Username:   data.User.Username,
-				FirstName:  data.User.FirstName,
-				LastName:   data.User.LastName,
+				TelegramID:   telegramID,
+				Username:     data.User.Username,
+				FirstName:    data.User.FirstName,
+				LastName:     data.User.LastName,
+				AuthProvider: models.AuthProviderTelegram,
 			}
 
 			log.Debug("Creating new user",
@@ -149,7 +153,8 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initDataStr string) (str
 	// Обновляем информацию о пользователе, если она изменилась
 	if user.Username != data.User.Username ||
 		user.FirstName != data.User.FirstName ||
-		user.LastName != data.User.LastName {
+		user.LastName != data.User.LastName ||
+		user.AuthProvider == "" {
 
 		log.Info("Updating user information",
 			zap.Uint64("telegram_id", user.TelegramID),
@@ -159,6 +164,9 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initDataStr string) (str
 		user.Username = data.User.Username
 		user.FirstName = data.User.FirstName
 		user.LastName = data.User.LastName
+		if user.AuthProvider == "" {
+			user.AuthProvider = models.AuthProviderTelegram
+		}
 
 		err = s.userRepo.Update(ctx, user)
 		if err != nil {
@@ -182,6 +190,169 @@ func (s *AuthServiceImpl) InitAuth(ctx context.Context, initDataStr string) (str
 		zap.Uint64("telegram_id", user.TelegramID),
 		zap.Int("token_length", len(token)))
 	return token, nil
+}
+
+// InitBaseAuth инициализирует аутентификацию пользователя Base Mini App
+func (s *AuthServiceImpl) InitBaseAuth(ctx context.Context, payload models.BaseAuthPayload) (string, error) {
+	log := s.logger.With(zap.String("method", "InitBaseAuth"))
+	log.Info("Initializing authentication from Base Mini App payload")
+
+	if payload.Address == "" || payload.Message == "" || payload.Signature == "" {
+		return "", errors.New("address, message and signature are required")
+	}
+	if !common.IsHexAddress(payload.Address) {
+		return "", errors.New("invalid address format")
+	}
+	if payload.SmartWalletAddress != "" && !common.IsHexAddress(payload.SmartWalletAddress) {
+		return "", errors.New("invalid smart wallet address format")
+	}
+	if payload.CustodyAddress != "" && !common.IsHexAddress(payload.CustodyAddress) {
+		return "", errors.New("invalid custody address format")
+	}
+	if payload.AuthMethod != "" && payload.AuthMethod != models.BaseAuthMethodSIWF && payload.AuthMethod != models.BaseAuthMethodWallet {
+		return "", fmt.Errorf("unsupported auth method: %s", payload.AuthMethod)
+	}
+	if payload.FID == 0 {
+		return "", errors.New("fid is required for Base auth")
+	}
+
+	recovered, err := recoverAddressFromSignature(payload.Message, payload.Signature)
+	if err != nil {
+		log.Error("Failed to recover address from signature", zap.Error(err))
+		return "", fmt.Errorf("invalid signature: %w", err)
+	}
+
+	normalizedAddress := common.HexToAddress(payload.Address).Hex()
+	if !strings.EqualFold(recovered, normalizedAddress) {
+		log.Warn("Signature does not match address",
+			zap.String("recovered", recovered),
+			zap.String("provided", normalizedAddress))
+		return "", errors.New("signature does not match address")
+	}
+
+	primaryWallet := normalizedAddress
+	if payload.SmartWalletAddress != "" {
+		primaryWallet = common.HexToAddress(payload.SmartWalletAddress).Hex()
+	}
+
+	user, err := s.userRepo.GetByTelegramID(ctx, payload.FID)
+	if err != nil {
+		if errors.Is(err, models.ErrUserNotFound) {
+			username := payload.Username
+			displayName := payload.DisplayName
+			if username == "" && displayName == "" {
+				username = fmt.Sprintf("base_%d", payload.FID)
+				displayName = username
+			}
+			if displayName == "" {
+				displayName = username
+			}
+
+			newUser := &models.User{
+				TelegramID:      payload.FID,
+				Username:        username,
+				FirstName:       displayName,
+				LastName:        "",
+				AuthProvider:    models.AuthProviderBase,
+				BaseFID:         payload.FID,
+				BaseUsername:    username,
+				BaseDisplayName: displayName,
+				BasePfpURL:      payload.PfpURL,
+				BaseCustodyAddr: payload.CustodyAddress,
+				BaseSmartWallet: payload.SmartWalletAddress,
+				Wallet:          primaryWallet,
+			}
+
+			if err := s.userRepo.Create(ctx, newUser); err != nil {
+				log.Error("Failed to create Base user", zap.Error(err))
+				return "", fmt.Errorf("failed to create user: %w", err)
+			}
+			user = newUser
+			log.Info("Base user created successfully", zap.Uint64("fid", payload.FID))
+		} else {
+			log.Error("Failed to get user", zap.Error(err))
+			return "", fmt.Errorf("failed to get user: %w", err)
+		}
+	}
+
+	needsUpdate := false
+	if user.AuthProvider == "" || user.AuthProvider != models.AuthProviderBase {
+		user.AuthProvider = models.AuthProviderBase
+		needsUpdate = true
+	}
+	if payload.Username != "" && user.Username != payload.Username {
+		user.Username = payload.Username
+		needsUpdate = true
+	}
+	if payload.DisplayName != "" && user.FirstName != payload.DisplayName {
+		user.FirstName = payload.DisplayName
+		needsUpdate = true
+	}
+	if payload.DisplayName != "" && user.BaseDisplayName != payload.DisplayName {
+		user.BaseDisplayName = payload.DisplayName
+		needsUpdate = true
+	}
+	if payload.PfpURL != "" && user.BasePfpURL != payload.PfpURL {
+		user.BasePfpURL = payload.PfpURL
+		needsUpdate = true
+	}
+	if payload.CustodyAddress != "" && !strings.EqualFold(user.BaseCustodyAddr, payload.CustodyAddress) {
+		user.BaseCustodyAddr = payload.CustodyAddress
+		needsUpdate = true
+	}
+	if payload.SmartWalletAddress != "" && !strings.EqualFold(user.BaseSmartWallet, payload.SmartWalletAddress) {
+		user.BaseSmartWallet = payload.SmartWalletAddress
+		needsUpdate = true
+	}
+	if payload.Username != "" && user.BaseUsername != payload.Username {
+		user.BaseUsername = payload.Username
+		needsUpdate = true
+	}
+	if payload.FID != 0 && user.BaseFID != payload.FID {
+		user.BaseFID = payload.FID
+		needsUpdate = true
+	}
+	if primaryWallet != "" && !strings.EqualFold(user.Wallet, primaryWallet) {
+		user.Wallet = primaryWallet
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			log.Error("Failed to update Base user", zap.Error(err))
+			return "", fmt.Errorf("failed to update user: %w", err)
+		}
+	}
+
+	token, err := s.GenerateToken(ctx, *user)
+	if err != nil {
+		log.Error("Failed to generate token", zap.Error(err))
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	log.Info("Base auth token generated successfully", zap.Uint64("fid", user.TelegramID))
+	return token, nil
+}
+
+func recoverAddressFromSignature(message, signature string) (string, error) {
+	sigHex := strings.TrimPrefix(signature, "0x")
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return "", fmt.Errorf("invalid signature encoding: %w", err)
+	}
+	if len(sig) != 65 {
+		return "", fmt.Errorf("invalid signature length: %d", len(sig))
+	}
+	if sig[64] >= 27 {
+		sig[64] -= 27
+	}
+	msgHash := accounts.TextHash([]byte(message))
+	pubKey, err := crypto.SigToPub(msgHash, sig)
+	if err != nil {
+		return "", fmt.Errorf("failed to recover public key: %w", err)
+	}
+	address := crypto.PubkeyToAddress(*pubKey).Hex()
+	return address, nil
 }
 
 // VerifyAuth проверяет аутентификацию по токену

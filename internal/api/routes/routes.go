@@ -98,6 +98,7 @@ func SetupRouterWithConfig(
 	{
 		// Аутентификация
 		public.POST("/auth/telegram", authHandler.TelegramAuth)
+		public.POST("/auth/base", authHandler.BaseAuth)
 		public.POST("/auth/verify", authHandler.VerifyAuth)
 		public.POST("/auth/logout", authHandler.Logout)
 

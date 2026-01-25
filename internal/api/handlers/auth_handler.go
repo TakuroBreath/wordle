@@ -54,6 +54,29 @@ func (h *AuthHandler) TelegramAuth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
+// BaseAuth обрабатывает аутентификацию через Base Mini App
+func (h *AuthHandler) BaseAuth(c *gin.Context) {
+	log := getLoggerFromContext(c).With(zap.String("handler", "BaseAuth"))
+	log.Info("Processing Base authentication request")
+
+	var input models.BaseAuthPayload
+	if err := c.ShouldBindJSON(&input); err != nil {
+		log.Error("Failed to bind JSON input", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	token, err := h.authService.InitBaseAuth(c, input)
+	if err != nil {
+		log.Error("Failed to initialize Base authentication", zap.Error(err))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Info("Base authentication successful, token generated")
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
 // VerifyAuth проверяет валидность токена
 func (h *AuthHandler) VerifyAuth(c *gin.Context) {
 	log := getLoggerFromContext(c).With(zap.String("handler", "VerifyAuth"))
@@ -84,13 +107,23 @@ func (h *AuthHandler) VerifyAuth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated": true,
 		"user": gin.H{
-			"telegram_id":  user.TelegramID,
-			"username":     user.Username,
-			"first_name":   user.FirstName,
-			"last_name":    user.LastName,
-			"wallet":       user.Wallet,
-			"balance_ton":  user.BalanceTon,
-			"balance_usdt": user.BalanceUsdt,
+			"telegram_id":   user.TelegramID,
+			"auth_provider": user.AuthProvider,
+			"username":      user.Username,
+			"first_name":    user.FirstName,
+			"last_name":     user.LastName,
+			"wallet":        user.Wallet,
+			"balance_ton":   user.BalanceTon,
+			"balance_usdt":  user.BalanceUsdt,
+			"balance_usdc":  user.BalanceUsdc,
+			"base": gin.H{
+				"fid":                  user.BaseFID,
+				"username":             user.BaseUsername,
+				"display_name":         user.BaseDisplayName,
+				"pfp_url":              user.BasePfpURL,
+				"custody_address":      user.BaseCustodyAddr,
+				"smart_wallet_address": user.BaseSmartWallet,
+			},
 		},
 	})
 }

@@ -120,6 +120,7 @@ func (s *HistoryServiceImpl) GetUserStats(ctx context.Context, userID uint64) (m
 	stats["win_rate"] = float64(user.Wins) / float64(user.Wins+user.Losses)
 	stats["balance_ton"] = user.BalanceTon
 	stats["balance_usdt"] = user.BalanceUsdt
+	stats["balance_usdc"] = user.BalanceUsdc
 
 	// Считаем среднюю награду
 	var totalReward float64
